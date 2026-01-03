@@ -33,7 +33,7 @@ import base64
 import queue
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set, Tuple
 from collections import OrderedDict
 import shutil
 import venv
@@ -48,7 +48,6 @@ import socket
 import urllib.parse
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Set, Tuple
 import asyncio
 import aiohttp
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -95,8 +94,8 @@ app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 
 # API Configuration
-API_PORT = int(os.environ.get('VectorAI_PORT', 8888))
-API_HOST = os.environ.get('VectorAI_HOST', '127.0.0.1')
+API_PORT = int(os.environ.get('VECTORAI_PORT', 8888))
+API_HOST = os.environ.get('VECTORAI_HOST', '127.0.0.1')
 
 # ============================================================================
 # MODERN VISUAL ENGINE (v2.0 ENHANCEMENT)
@@ -182,12 +181,12 @@ class ModernVisualEngine:
         title_block = f"{accent}{BOLD}"
         banner = f"""
 {title_block}
-██╗  ██╗███████╗██╗  ██╗███████╗████████╗██████╗ ██╗██╗  ██╗███████╗
-██║  ██║██╔════╝╚██╗██╔╝██╔════╝╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝
-███████║█████╗   ╚███╔╝ ███████╗   ██║   ██████╔╝██║█████╔╝ █████╗
-██╔══██║██╔══╝   ██╔██╗ ╚════██║   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝
-██║  ██║███████╗██╔╝ ██╗███████║   ██║   ██║  ██║██║██║  ██╗███████╗
-╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝
+██╗   ██╗███████╗ ██████╗████████╗ ██████╗ ██████╗  █████╗ ██╗
+██║   ██║██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗██╔══██╗██║
+██║   ██║█████╗  ██║        ██║   ██║   ██║██████╔╝███████║██║
+╚██╗ ██╔╝██╔══╝  ██║        ██║   ██║   ██║██╔══██╗██╔══██║██║
+ ╚████╔╝ ███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║██║  ██║██║
+  ╚═══╝  ╚══════╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝
 {RESET}
 {border_color}┌─────────────────────────────────────────────────────────────────────┐
 │  {ModernVisualEngine.COLORS['BRIGHT_WHITE']}🚀 VectorAI AI - Blood-Red Offensive Intelligence Core{border_color}        │
@@ -873,8 +872,10 @@ class IntelligentDecisionEngine:
             if hostname:
                 ip = socket.gethostbyname(hostname)
                 return [ip]
-        except Exception:
-            pass
+        except socket.gaierror as e:
+            logger.debug(f"DNS resolution failed for {target}: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to resolve {target}: {e}")
         return []
 
     def _detect_technologies(self, target: str) -> List[TechnologyStack]:
@@ -2154,8 +2155,9 @@ class IntelligentErrorHandler:
                 "load_average": os.getloadavg() if hasattr(os, 'getloadavg') else None,
                 "active_processes": len(psutil.pids())
             }
-        except Exception:
-            return {"error": "Unable to get system resources"}
+        except Exception as e:
+            logger.debug(f"Unable to get system resources: {e}")
+            return {"error": f"Unable to get system resources: {str(e)}"}
 
     def _add_to_history(self, error_context: ErrorContext):
         """Add error context to history"""
@@ -2320,7 +2322,10 @@ class GracefulDegradation:
                 if result == 0:
                     open_ports.append(port)
                 sock.close()
-            except Exception:
+            except socket.timeout:
+                continue  # Expected for closed ports
+            except Exception as e:
+                logger.debug(f"Port scan error on {target}:{port}: {e}")
                 continue
 
         return open_ports
@@ -2339,7 +2344,10 @@ class GracefulDegradation:
                 response = requests.head(url, timeout=5, allow_redirects=True)
                 if response.status_code in [200, 301, 302, 403]:
                     found_dirs.append(directory)
-            except Exception:
+            except requests.exceptions.Timeout:
+                continue  # Expected for slow targets
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"Directory check failed for {url}: {e}")
                 continue
 
         return found_dirs

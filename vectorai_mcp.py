@@ -264,12 +264,12 @@ class VectorAIClient:
         """
         return self.safe_get("health")
 
-def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
+def setup_mcp_server(vectorai_client: VectorAIClient) -> FastMCP:
     """
     Set up the MCP server with all enhanced tool functions
 
     Args:
-        VectorAI_client: Initialized VectorAIClient
+        vectorai_client: Initialized VectorAIClient
 
     Returns:
         Configured FastMCP instance
@@ -304,7 +304,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
 
         # Use enhanced error handling by default
         data["use_recovery"] = True
-        result = VectorAI_client.safe_post("api/tools/nmap", data)
+        result = vectorai_client.safe_post("api/tools/nmap", data)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ Nmap scan completed successfully for {target}{VectorAIColors.RESET}")
@@ -347,7 +347,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
 
         # Use enhanced error handling by default
         data["use_recovery"] = True
-        result = VectorAI_client.safe_post("api/tools/gobuster", data)
+        result = vectorai_client.safe_post("api/tools/gobuster", data)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ Gobuster scan completed for {url}{VectorAIColors.RESET}")
@@ -393,7 +393,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
 
         # Use enhanced error handling by default
         data["use_recovery"] = True
-        result = VectorAI_client.safe_post("api/tools/nuclei", data)
+        result = vectorai_client.safe_post("api/tools/nuclei", data)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ Nuclei scan completed for {target}{VectorAIColors.RESET}")
@@ -445,7 +445,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting Prowler {provider} security assessment")
-        result = VectorAI_client.safe_post("api/tools/prowler", data)
+        result = vectorai_client.safe_post("api/tools/prowler", data)
         if result.get("success"):
             logger.info(f"✅ Prowler assessment completed")
         else:
@@ -477,7 +477,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Trivy {scan_type} scan: {target}")
-        result = VectorAI_client.safe_post("api/tools/trivy", data)
+        result = vectorai_client.safe_post("api/tools/trivy", data)
         if result.get("success"):
             logger.info(f"✅ Trivy scan completed for {target}")
         else:
@@ -515,7 +515,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting Scout Suite {provider} assessment")
-        result = VectorAI_client.safe_post("api/tools/scout-suite", data)
+        result = vectorai_client.safe_post("api/tools/scout-suite", data)
         if result.get("success"):
             logger.info(f"✅ Scout Suite assessment completed")
         else:
@@ -544,7 +544,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting CloudMapper {action}")
-        result = VectorAI_client.safe_post("api/tools/cloudmapper", data)
+        result = vectorai_client.safe_post("api/tools/cloudmapper", data)
         if result.get("success"):
             logger.info(f"✅ CloudMapper {action} completed")
         else:
@@ -576,7 +576,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting Pacu AWS exploitation")
-        result = VectorAI_client.safe_post("api/tools/pacu", data)
+        result = vectorai_client.safe_post("api/tools/pacu", data)
         if result.get("success"):
             logger.info(f"✅ Pacu exploitation completed")
         else:
@@ -612,7 +612,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting kube-hunter Kubernetes scan")
-        result = VectorAI_client.safe_post("api/tools/kube-hunter", data)
+        result = vectorai_client.safe_post("api/tools/kube-hunter", data)
         if result.get("success"):
             logger.info(f"✅ kube-hunter scan completed")
         else:
@@ -643,7 +643,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"☁️  Starting kube-bench CIS benchmark")
-        result = VectorAI_client.safe_post("api/tools/kube-bench", data)
+        result = vectorai_client.safe_post("api/tools/kube-bench", data)
         if result.get("success"):
             logger.info(f"✅ kube-bench benchmark completed")
         else:
@@ -673,7 +673,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🐳 Starting Docker Bench Security assessment")
-        result = VectorAI_client.safe_post("api/tools/docker-bench-security", data)
+        result = vectorai_client.safe_post("api/tools/docker-bench-security", data)
         if result.get("success"):
             logger.info(f"✅ Docker Bench Security completed")
         else:
@@ -702,7 +702,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🐳 Starting Clair vulnerability scan: {image}")
-        result = VectorAI_client.safe_post("api/tools/clair", data)
+        result = vectorai_client.safe_post("api/tools/clair", data)
         if result.get("success"):
             logger.info(f"✅ Clair scan completed for {image}")
         else:
@@ -734,7 +734,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🛡️  Starting Falco runtime monitoring for {duration}s")
-        result = VectorAI_client.safe_post("api/tools/falco", data)
+        result = vectorai_client.safe_post("api/tools/falco", data)
         if result.get("success"):
             logger.info(f"✅ Falco monitoring completed")
         else:
@@ -768,7 +768,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Checkov IaC scan: {directory}")
-        result = VectorAI_client.safe_post("api/tools/checkov", data)
+        result = vectorai_client.safe_post("api/tools/checkov", data)
         if result.get("success"):
             logger.info(f"✅ Checkov scan completed")
         else:
@@ -802,7 +802,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Terrascan IaC scan: {iac_dir}")
-        result = VectorAI_client.safe_post("api/tools/terrascan", data)
+        result = vectorai_client.safe_post("api/tools/terrascan", data)
         if result.get("success"):
             logger.info(f"✅ Terrascan scan completed")
         else:
@@ -832,7 +832,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "binary": binary
         }
         logger.info(f"📄 Creating file: {filename}")
-        result = VectorAI_client.safe_post("api/files/create", data)
+        result = vectorai_client.safe_post("api/files/create", data)
         if result.get("success"):
             logger.info(f"✅ File created successfully: {filename}")
         else:
@@ -858,7 +858,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "append": append
         }
         logger.info(f"✏️  Modifying file: {filename}")
-        result = VectorAI_client.safe_post("api/files/modify", data)
+        result = vectorai_client.safe_post("api/files/modify", data)
         if result.get("success"):
             logger.info(f"✅ File modified successfully: {filename}")
         else:
@@ -880,7 +880,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "filename": filename
         }
         logger.info(f"🗑️  Deleting file: {filename}")
-        result = VectorAI_client.safe_post("api/files/delete", data)
+        result = vectorai_client.safe_post("api/files/delete", data)
         if result.get("success"):
             logger.info(f"✅ File deleted successfully: {filename}")
         else:
@@ -899,7 +899,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Directory listing results
         """
         logger.info(f"📂 Listing files in directory: {directory}")
-        result = VectorAI_client.safe_get("api/files/list", {"directory": directory})
+        result = vectorai_client.safe_get("api/files/list", {"directory": directory})
         if result.get("success"):
             file_count = len(result.get("files", []))
             logger.info(f"✅ Listed {file_count} files in {directory}")
@@ -930,7 +930,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             data["filename"] = filename
 
         logger.info(f"🎯 Generating {payload_type} payload: {size} bytes")
-        result = VectorAI_client.safe_post("api/payloads/generate", data)
+        result = vectorai_client.safe_post("api/payloads/generate", data)
         if result.get("success"):
             logger.info(f"✅ Payload generated successfully")
         else:
@@ -958,7 +958,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "env_name": env_name
         }
         logger.info(f"📦 Installing Python package: {package} in env {env_name}")
-        result = VectorAI_client.safe_post("api/python/install", data)
+        result = vectorai_client.safe_post("api/python/install", data)
         if result.get("success"):
             logger.info(f"✅ Package {package} installed successfully")
         else:
@@ -986,7 +986,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             data["filename"] = filename
 
         logger.info(f"🐍 Executing Python script in env {env_name}")
-        result = VectorAI_client.safe_post("api/python/execute", data)
+        result = vectorai_client.safe_post("api/python/execute", data)
         if result.get("success"):
             logger.info(f"✅ Python script executed successfully")
         else:
@@ -1016,7 +1016,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"📁 Starting Dirb scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/dirb", data)
+        result = vectorai_client.safe_post("api/tools/dirb", data)
         if result.get("success"):
             logger.info(f"✅ Dirb scan completed for {url}")
         else:
@@ -1040,7 +1040,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔬 Starting Nikto scan: {target}")
-        result = VectorAI_client.safe_post("api/tools/nikto", data)
+        result = vectorai_client.safe_post("api/tools/nikto", data)
         if result.get("success"):
             logger.info(f"✅ Nikto scan completed for {target}")
         else:
@@ -1066,7 +1066,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"💉 Starting SQLMap scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/sqlmap", data_payload)
+        result = vectorai_client.safe_post("api/tools/sqlmap", data_payload)
         if result.get("success"):
             logger.info(f"✅ SQLMap scan completed for {url}")
         else:
@@ -1090,7 +1090,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "options": options
         }
         logger.info(f"🚀 Starting Metasploit module: {module}")
-        result = VectorAI_client.safe_post("api/tools/metasploit", data)
+        result = vectorai_client.safe_post("api/tools/metasploit", data)
         if result.get("success"):
             logger.info(f"✅ Metasploit module completed: {module}")
         else:
@@ -1132,7 +1132,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔑 Starting Hydra attack: {target}:{service}")
-        result = VectorAI_client.safe_post("api/tools/hydra", data)
+        result = vectorai_client.safe_post("api/tools/hydra", data)
         if result.get("success"):
             logger.info(f"✅ Hydra attack completed for {target}")
         else:
@@ -1165,7 +1165,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔐 Starting John the Ripper: {hash_file}")
-        result = VectorAI_client.safe_post("api/tools/john", data)
+        result = vectorai_client.safe_post("api/tools/john", data)
         if result.get("success"):
             logger.info(f"✅ John the Ripper completed")
         else:
@@ -1189,7 +1189,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting WPScan: {url}")
-        result = VectorAI_client.safe_post("api/tools/wpscan", data)
+        result = vectorai_client.safe_post("api/tools/wpscan", data)
         if result.get("success"):
             logger.info(f"✅ WPScan completed for {url}")
         else:
@@ -1213,7 +1213,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Enum4linux: {target}")
-        result = VectorAI_client.safe_post("api/tools/enum4linux", data)
+        result = vectorai_client.safe_post("api/tools/enum4linux", data)
         if result.get("success"):
             logger.info(f"✅ Enum4linux completed for {target}")
         else:
@@ -1243,7 +1243,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting FFuf {mode} fuzzing: {url}")
-        result = VectorAI_client.safe_post("api/tools/ffuf", data)
+        result = vectorai_client.safe_post("api/tools/ffuf", data)
         if result.get("success"):
             logger.info(f"✅ FFuf fuzzing completed for {url}")
         else:
@@ -1277,7 +1277,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting NetExec {protocol} scan: {target}")
-        result = VectorAI_client.safe_post("api/tools/netexec", data)
+        result = vectorai_client.safe_post("api/tools/netexec", data)
         if result.get("success"):
             logger.info(f"✅ NetExec scan completed for {target}")
         else:
@@ -1303,7 +1303,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Amass {mode}: {domain}")
-        result = VectorAI_client.safe_post("api/tools/amass", data)
+        result = vectorai_client.safe_post("api/tools/amass", data)
         if result.get("success"):
             logger.info(f"✅ Amass completed for {domain}")
         else:
@@ -1335,7 +1335,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔐 Starting Hashcat attack: mode {attack_mode}")
-        result = VectorAI_client.safe_post("api/tools/hashcat", data)
+        result = vectorai_client.safe_post("api/tools/hashcat", data)
         if result.get("success"):
             logger.info(f"✅ Hashcat attack completed")
         else:
@@ -1363,7 +1363,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Subfinder: {domain}")
-        result = VectorAI_client.safe_post("api/tools/subfinder", data)
+        result = vectorai_client.safe_post("api/tools/subfinder", data)
         if result.get("success"):
             logger.info(f"✅ Subfinder completed for {domain}")
         else:
@@ -1393,7 +1393,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting SMBMap: {target}")
-        result = VectorAI_client.safe_post("api/tools/smbmap", data)
+        result = vectorai_client.safe_post("api/tools/smbmap", data)
         if result.get("success"):
             logger.info(f"✅ SMBMap completed for {target}")
         else:
@@ -1433,7 +1433,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"⚡ Starting Rustscan: {target}")
-        result = VectorAI_client.safe_post("api/tools/rustscan", data)
+        result = vectorai_client.safe_post("api/tools/rustscan", data)
         if result.get("success"):
             logger.info(f"✅ Rustscan completed for {target}")
         else:
@@ -1471,7 +1471,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🚀 Starting Masscan: {target} at rate {rate}")
-        result = VectorAI_client.safe_post("api/tools/masscan", data)
+        result = vectorai_client.safe_post("api/tools/masscan", data)
         if result.get("success"):
             logger.info(f"✅ Masscan completed for {target}")
         else:
@@ -1514,7 +1514,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Advanced Nmap: {target}")
-        result = VectorAI_client.safe_post("api/tools/nmap-advanced", data)
+        result = vectorai_client.safe_post("api/tools/nmap-advanced", data)
         if result.get("success"):
             logger.info(f"✅ Advanced Nmap completed for {target}")
         else:
@@ -1551,7 +1551,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔄 Starting AutoRecon: {target}")
-        result = VectorAI_client.safe_post("api/tools/autorecon", data)
+        result = vectorai_client.safe_post("api/tools/autorecon", data)
         if result.get("success"):
             logger.info(f"✅ AutoRecon completed for {target}")
         else:
@@ -1592,7 +1592,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Enum4linux-ng: {target}")
-        result = VectorAI_client.safe_post("api/tools/enum4linux-ng", data)
+        result = vectorai_client.safe_post("api/tools/enum4linux-ng", data)
         if result.get("success"):
             logger.info(f"✅ Enum4linux-ng completed for {target}")
         else:
@@ -1626,7 +1626,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting rpcclient: {target}")
-        result = VectorAI_client.safe_post("api/tools/rpcclient", data)
+        result = vectorai_client.safe_post("api/tools/rpcclient", data)
         if result.get("success"):
             logger.info(f"✅ rpcclient completed for {target}")
         else:
@@ -1655,7 +1655,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting nbtscan: {target}")
-        result = VectorAI_client.safe_post("api/tools/nbtscan", data)
+        result = vectorai_client.safe_post("api/tools/nbtscan", data)
         if result.get("success"):
             logger.info(f"✅ nbtscan completed for {target}")
         else:
@@ -1688,7 +1688,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting arp-scan: {target if target else 'local network'}")
-        result = VectorAI_client.safe_post("api/tools/arp-scan", data)
+        result = vectorai_client.safe_post("api/tools/arp-scan", data)
         if result.get("success"):
             logger.info(f"✅ arp-scan completed")
         else:
@@ -1725,7 +1725,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Responder on interface: {interface}")
-        result = VectorAI_client.safe_post("api/tools/responder", data)
+        result = vectorai_client.safe_post("api/tools/responder", data)
         if result.get("success"):
             logger.info(f"✅ Responder completed")
         else:
@@ -1753,7 +1753,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🧠 Starting Volatility analysis: {plugin}")
-        result = VectorAI_client.safe_post("api/tools/volatility", data)
+        result = vectorai_client.safe_post("api/tools/volatility", data)
         if result.get("success"):
             logger.info(f"✅ Volatility analysis completed")
         else:
@@ -1785,7 +1785,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🚀 Starting MSFVenom payload generation: {payload}")
-        result = VectorAI_client.safe_post("api/tools/msfvenom", data)
+        result = vectorai_client.safe_post("api/tools/msfvenom", data)
         if result.get("success"):
             logger.info(f"✅ MSFVenom payload generated")
         else:
@@ -1817,7 +1817,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting GDB analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/gdb", data)
+        result = vectorai_client.safe_post("api/tools/gdb", data)
         if result.get("success"):
             logger.info(f"✅ GDB analysis completed for {binary}")
         else:
@@ -1843,7 +1843,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Radare2 analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/radare2", data)
+        result = vectorai_client.safe_post("api/tools/radare2", data)
         if result.get("success"):
             logger.info(f"✅ Radare2 analysis completed for {binary}")
         else:
@@ -1869,7 +1869,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Binwalk analysis: {file_path}")
-        result = VectorAI_client.safe_post("api/tools/binwalk", data)
+        result = vectorai_client.safe_post("api/tools/binwalk", data)
         if result.get("success"):
             logger.info(f"✅ Binwalk analysis completed for {file_path}")
         else:
@@ -1895,7 +1895,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting ROPgadget search: {binary}")
-        result = VectorAI_client.safe_post("api/tools/ropgadget", data)
+        result = vectorai_client.safe_post("api/tools/ropgadget", data)
         if result.get("success"):
             logger.info(f"✅ ROPgadget search completed for {binary}")
         else:
@@ -1917,7 +1917,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "binary": binary
         }
         logger.info(f"🔧 Starting Checksec analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/checksec", data)
+        result = vectorai_client.safe_post("api/tools/checksec", data)
         if result.get("success"):
             logger.info(f"✅ Checksec analysis completed for {binary}")
         else:
@@ -1945,7 +1945,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting XXD hex dump: {file_path}")
-        result = VectorAI_client.safe_post("api/tools/xxd", data)
+        result = vectorai_client.safe_post("api/tools/xxd", data)
         if result.get("success"):
             logger.info(f"✅ XXD hex dump completed for {file_path}")
         else:
@@ -1971,7 +1971,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Strings extraction: {file_path}")
-        result = VectorAI_client.safe_post("api/tools/strings", data)
+        result = vectorai_client.safe_post("api/tools/strings", data)
         if result.get("success"):
             logger.info(f"✅ Strings extraction completed for {file_path}")
         else:
@@ -1997,7 +1997,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Objdump analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/objdump", data)
+        result = vectorai_client.safe_post("api/tools/objdump", data)
         if result.get("success"):
             logger.info(f"✅ Objdump analysis completed for {binary}")
         else:
@@ -2035,7 +2035,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Ghidra analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/ghidra", data)
+        result = vectorai_client.safe_post("api/tools/ghidra", data)
         if result.get("success"):
             logger.info(f"✅ Ghidra analysis completed for {binary}")
         else:
@@ -2069,7 +2069,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting Pwntools exploit: {exploit_type}")
-        result = VectorAI_client.safe_post("api/tools/pwntools", data)
+        result = vectorai_client.safe_post("api/tools/pwntools", data)
         if result.get("success"):
             logger.info(f"✅ Pwntools exploit completed")
         else:
@@ -2095,7 +2095,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting one_gadget analysis: {libc_path}")
-        result = VectorAI_client.safe_post("api/tools/one-gadget", data)
+        result = vectorai_client.safe_post("api/tools/one-gadget", data)
         if result.get("success"):
             logger.info(f"✅ one_gadget analysis completed")
         else:
@@ -2124,7 +2124,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting libc-database {action}: {symbols or libc_id}")
-        result = VectorAI_client.safe_post("api/tools/libc-database", data)
+        result = vectorai_client.safe_post("api/tools/libc-database", data)
         if result.get("success"):
             logger.info(f"✅ libc-database {action} completed")
         else:
@@ -2155,7 +2155,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting GDB-PEDA analysis: {binary or f'PID {attach_pid}' or core_file}")
-        result = VectorAI_client.safe_post("api/tools/gdb-peda", data)
+        result = vectorai_client.safe_post("api/tools/gdb-peda", data)
         if result.get("success"):
             logger.info(f"✅ GDB-PEDA analysis completed")
         else:
@@ -2189,7 +2189,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting angr analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/angr", data)
+        result = vectorai_client.safe_post("api/tools/angr", data)
         if result.get("success"):
             logger.info(f"✅ angr analysis completed")
         else:
@@ -2223,7 +2223,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting ropper analysis: {binary}")
-        result = VectorAI_client.safe_post("api/tools/ropper", data)
+        result = vectorai_client.safe_post("api/tools/ropper", data)
         if result.get("success"):
             logger.info(f"✅ ropper analysis completed")
         else:
@@ -2254,7 +2254,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔧 Starting pwninit setup: {binary}")
-        result = VectorAI_client.safe_post("api/tools/pwninit", data)
+        result = vectorai_client.safe_post("api/tools/pwninit", data)
         if result.get("success"):
             logger.info(f"✅ pwninit setup completed")
         else:
@@ -2282,7 +2282,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Feroxbuster scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/feroxbuster", data)
+        result = vectorai_client.safe_post("api/tools/feroxbuster", data)
         if result.get("success"):
             logger.info(f"✅ Feroxbuster scan completed for {url}")
         else:
@@ -2308,7 +2308,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting DotDotPwn scan: {target}")
-        result = VectorAI_client.safe_post("api/tools/dotdotpwn", data)
+        result = vectorai_client.safe_post("api/tools/dotdotpwn", data)
         if result.get("success"):
             logger.info(f"✅ DotDotPwn scan completed for {target}")
         else:
@@ -2334,7 +2334,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting XSSer scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/xsser", data)
+        result = vectorai_client.safe_post("api/tools/xsser", data)
         if result.get("success"):
             logger.info(f"✅ XSSer scan completed for {url}")
         else:
@@ -2360,7 +2360,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Wfuzz scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/wfuzz", data)
+        result = vectorai_client.safe_post("api/tools/wfuzz", data)
         if result.get("success"):
             logger.info(f"✅ Wfuzz scan completed for {url}")
         else:
@@ -2398,7 +2398,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"📁 Starting Dirsearch scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/dirsearch", data)
+        result = vectorai_client.safe_post("api/tools/dirsearch", data)
         if result.get("success"):
             logger.info(f"✅ Dirsearch scan completed for {url}")
         else:
@@ -2432,7 +2432,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"⚔️  Starting Katana crawl: {url}")
-        result = VectorAI_client.safe_post("api/tools/katana", data)
+        result = vectorai_client.safe_post("api/tools/katana", data)
         if result.get("success"):
             logger.info(f"✅ Katana crawl completed for {url}")
         else:
@@ -2464,7 +2464,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"📡 Starting Gau URL discovery: {domain}")
-        result = VectorAI_client.safe_post("api/tools/gau", data)
+        result = vectorai_client.safe_post("api/tools/gau", data)
         if result.get("success"):
             logger.info(f"✅ Gau URL discovery completed for {domain}")
         else:
@@ -2493,7 +2493,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🕰️  Starting Waybackurls discovery: {domain}")
-        result = VectorAI_client.safe_post("api/tools/waybackurls", data)
+        result = vectorai_client.safe_post("api/tools/waybackurls", data)
         if result.get("success"):
             logger.info(f"✅ Waybackurls discovery completed for {domain}")
         else:
@@ -2529,7 +2529,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🎯 Starting Arjun parameter discovery: {url}")
-        result = VectorAI_client.safe_post("api/tools/arjun", data)
+        result = vectorai_client.safe_post("api/tools/arjun", data)
         if result.get("success"):
             logger.info(f"✅ Arjun parameter discovery completed for {url}")
         else:
@@ -2561,7 +2561,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🕷️  Starting ParamSpider mining: {domain}")
-        result = VectorAI_client.safe_post("api/tools/paramspider", data)
+        result = vectorai_client.safe_post("api/tools/paramspider", data)
         if result.get("success"):
             logger.info(f"✅ ParamSpider mining completed for {domain}")
         else:
@@ -2595,7 +2595,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting x8 parameter discovery: {url}")
-        result = VectorAI_client.safe_post("api/tools/x8", data)
+        result = vectorai_client.safe_post("api/tools/x8", data)
         if result.get("success"):
             logger.info(f"✅ x8 parameter discovery completed for {url}")
         else:
@@ -2629,7 +2629,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔬 Starting Jaeles vulnerability scan: {url}")
-        result = VectorAI_client.safe_post("api/tools/jaeles", data)
+        result = vectorai_client.safe_post("api/tools/jaeles", data)
         if result.get("success"):
             logger.info(f"✅ Jaeles vulnerability scan completed for {url}")
         else:
@@ -2665,7 +2665,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🎯 Starting Dalfox XSS scan: {url if url else 'pipe mode'}")
-        result = VectorAI_client.safe_post("api/tools/dalfox", data)
+        result = vectorai_client.safe_post("api/tools/dalfox", data)
         if result.get("success"):
             logger.info(f"✅ Dalfox XSS scan completed")
         else:
@@ -2706,7 +2706,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🌍 Starting httpx probe: {target}")
-        result = VectorAI_client.safe_post("api/tools/httpx", data)
+        result = vectorai_client.safe_post("api/tools/httpx", data)
         if result.get("success"):
             logger.info(f"✅ httpx probe completed for {target}")
         else:
@@ -2733,7 +2733,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info("📝 Starting anew data processing")
-        result = VectorAI_client.safe_post("api/tools/anew", data)
+        result = vectorai_client.safe_post("api/tools/anew", data)
         if result.get("success"):
             logger.info("✅ anew data processing completed")
         else:
@@ -2760,7 +2760,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info("🔄 Starting qsreplace parameter replacement")
-        result = VectorAI_client.safe_post("api/tools/qsreplace", data)
+        result = vectorai_client.safe_post("api/tools/qsreplace", data)
         if result.get("success"):
             logger.info("✅ qsreplace parameter replacement completed")
         else:
@@ -2789,7 +2789,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info("🔍 Starting uro URL filtering")
-        result = VectorAI_client.safe_post("api/tools/uro", data)
+        result = vectorai_client.safe_post("api/tools/uro", data)
         if result.get("success"):
             logger.info("✅ uro URL filtering completed")
         else:
@@ -2821,7 +2821,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "url": url
         }
         logger.info(f"🤖 Generating AI payloads for {attack_type} attack")
-        result = VectorAI_client.safe_post("api/ai/generate_payload", data)
+        result = vectorai_client.safe_post("api/ai/generate_payload", data)
 
         if result.get("success"):
             payload_data = result.get("ai_payload_generation", {})
@@ -2860,7 +2860,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "method": method
         }
         logger.info(f"🧪 Testing AI payload against {target_url}")
-        result = VectorAI_client.safe_post("api/ai/test_payload", data)
+        result = vectorai_client.safe_post("api/ai/test_payload", data)
 
         if result.get("success"):
             analysis = result.get("ai_analysis", {})
@@ -2959,7 +2959,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🔍 Starting API fuzzing: {base_url}")
-        result = VectorAI_client.safe_post("api/tools/api_fuzzer", data)
+        result = vectorai_client.safe_post("api/tools/api_fuzzer", data)
 
         if result.get("success"):
             fuzzing_type = result.get("fuzzing_type", "unknown")
@@ -2995,7 +2995,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🔍 Starting GraphQL security scan: {endpoint}")
-        result = VectorAI_client.safe_post("api/tools/graphql_scanner", data)
+        result = vectorai_client.safe_post("api/tools/graphql_scanner", data)
 
         if result.get("success"):
             scan_results = result.get("graphql_scan_results", {})
@@ -3033,7 +3033,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🔍 Starting JWT security analysis")
-        result = VectorAI_client.safe_post("api/tools/jwt_analyzer", data)
+        result = vectorai_client.safe_post("api/tools/jwt_analyzer", data)
 
         if result.get("success"):
             analysis = result.get("jwt_analysis_results", {})
@@ -3072,7 +3072,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🔍 Starting API schema analysis: {schema_url}")
-        result = VectorAI_client.safe_post("api/tools/api_schema_analyzer", data)
+        result = vectorai_client.safe_post("api/tools/api_schema_analyzer", data)
 
         if result.get("success"):
             analysis = result.get("schema_analysis_results", {})
@@ -3218,7 +3218,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🧠 Starting Volatility3 analysis: {plugin}")
-        result = VectorAI_client.safe_post("api/tools/volatility3", data)
+        result = vectorai_client.safe_post("api/tools/volatility3", data)
         if result.get("success"):
             logger.info(f"✅ Volatility3 analysis completed")
         else:
@@ -3246,7 +3246,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"📁 Starting Foremost file carving: {input_file}")
-        result = VectorAI_client.safe_post("api/tools/foremost", data)
+        result = vectorai_client.safe_post("api/tools/foremost", data)
         if result.get("success"):
             logger.info(f"✅ Foremost carving completed")
         else:
@@ -3278,7 +3278,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🖼️ Starting Steghide {action}: {cover_file}")
-        result = VectorAI_client.safe_post("api/tools/steghide", data)
+        result = vectorai_client.safe_post("api/tools/steghide", data)
         if result.get("success"):
             logger.info(f"✅ Steghide {action} completed")
         else:
@@ -3306,7 +3306,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"📷 Starting ExifTool analysis: {file_path}")
-        result = VectorAI_client.safe_post("api/tools/exiftool", data)
+        result = vectorai_client.safe_post("api/tools/exiftool", data)
         if result.get("success"):
             logger.info(f"✅ ExifTool analysis completed")
         else:
@@ -3336,7 +3336,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔐 Starting HashPump attack")
-        result = VectorAI_client.safe_post("api/tools/hashpump", data)
+        result = vectorai_client.safe_post("api/tools/hashpump", data)
         if result.get("success"):
             logger.info(f"✅ HashPump attack completed")
         else:
@@ -3381,7 +3381,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🕷️ Starting Hakrawler crawling: {url}")
-        result = VectorAI_client.safe_post("api/tools/hakrawler", data)
+        result = vectorai_client.safe_post("api/tools/hakrawler", data)
         if result.get("success"):
             logger.info(f"✅ Hakrawler crawling completed")
         else:
@@ -3417,7 +3417,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🌐 Starting HTTPx probing")
-        result = VectorAI_client.safe_post("api/tools/httpx", data)
+        result = vectorai_client.safe_post("api/tools/httpx", data)
         if result.get("success"):
             logger.info(f"✅ HTTPx probing completed")
         else:
@@ -3447,7 +3447,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting ParamSpider discovery: {domain}")
-        result = VectorAI_client.safe_post("api/tools/paramspider", data)
+        result = vectorai_client.safe_post("api/tools/paramspider", data)
         if result.get("success"):
             logger.info(f"✅ ParamSpider discovery completed")
         else:
@@ -3487,7 +3487,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Burp Suite scan")
-        result = VectorAI_client.safe_post("api/tools/burpsuite", data)
+        result = vectorai_client.safe_post("api/tools/burpsuite", data)
         if result.get("success"):
             logger.info(f"✅ Burp Suite scan completed")
         else:
@@ -3525,7 +3525,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting ZAP scan: {target}")
-        result = VectorAI_client.safe_post("api/tools/zap", data)
+        result = vectorai_client.safe_post("api/tools/zap", data)
         if result.get("success"):
             logger.info(f"✅ ZAP scan completed for {target}")
         else:
@@ -3559,7 +3559,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Arjun parameter discovery: {url}")
-        result = VectorAI_client.safe_post("api/tools/arjun", data)
+        result = vectorai_client.safe_post("api/tools/arjun", data)
         if result.get("success"):
             logger.info(f"✅ Arjun completed for {url}")
         else:
@@ -3583,7 +3583,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🛡️ Starting Wafw00f WAF detection: {target}")
-        result = VectorAI_client.safe_post("api/tools/wafw00f", data)
+        result = vectorai_client.safe_post("api/tools/wafw00f", data)
         if result.get("success"):
             logger.info(f"✅ Wafw00f completed for {target}")
         else:
@@ -3609,7 +3609,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting Fierce DNS recon: {domain}")
-        result = VectorAI_client.safe_post("api/tools/fierce", data)
+        result = vectorai_client.safe_post("api/tools/fierce", data)
         if result.get("success"):
             logger.info(f"✅ Fierce completed for {domain}")
         else:
@@ -3637,7 +3637,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting DNSenum: {domain}")
-        result = VectorAI_client.safe_post("api/tools/dnsenum", data)
+        result = vectorai_client.safe_post("api/tools/dnsenum", data)
         if result.get("success"):
             logger.info(f"✅ DNSenum completed for {domain}")
         else:
@@ -3775,7 +3775,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "additional_args": additional_args
         }
         logger.info(f"🔍 Starting AutoRecon comprehensive enumeration: {target}")
-        result = VectorAI_client.safe_post("api/tools/autorecon", data)
+        result = vectorai_client.safe_post("api/tools/autorecon", data)
         if result.get("success"):
             logger.info(f"✅ AutoRecon comprehensive enumeration completed for {target}")
         else:
@@ -3795,7 +3795,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Server health information with tool availability and telemetry
         """
         logger.info(f"🏥 Checking VectorAI server health")
-        result = VectorAI_client.check_health()
+        result = vectorai_client.check_health()
         if result.get("status") == "healthy":
             logger.info(f"✅ Server is healthy - {result.get('total_tools_available', 0)} tools available")
         else:
@@ -3811,7 +3811,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Cache performance statistics
         """
         logger.info(f"💾 Getting cache statistics")
-        result = VectorAI_client.safe_get("api/cache/stats")
+        result = vectorai_client.safe_get("api/cache/stats")
         if "hit_rate" in result:
             logger.info(f"📊 Cache hit rate: {result.get('hit_rate', 'unknown')}")
         return result
@@ -3825,7 +3825,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Cache clear operation results
         """
         logger.info(f"🧹 Clearing server cache")
-        result = VectorAI_client.safe_post("api/cache/clear", {})
+        result = vectorai_client.safe_post("api/cache/clear", {})
         if result.get("success"):
             logger.info(f"✅ Cache cleared successfully")
         else:
@@ -3841,7 +3841,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             System performance and usage telemetry
         """
         logger.info(f"📈 Getting system telemetry")
-        result = VectorAI_client.safe_get("api/telemetry")
+        result = vectorai_client.safe_get("api/telemetry")
         if "commands_executed" in result:
             logger.info(f"📊 Commands executed: {result.get('commands_executed', 0)}")
         return result
@@ -3859,7 +3859,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             List of active processes with their status and progress
         """
         logger.info("📊 Listing active processes")
-        result = VectorAI_client.safe_get("api/processes/list")
+        result = vectorai_client.safe_get("api/processes/list")
         if result.get("success"):
             logger.info(f"✅ Found {result.get('total_count', 0)} active processes")
         else:
@@ -3878,7 +3878,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Process status information including progress and runtime
         """
         logger.info(f"🔍 Checking status of process {pid}")
-        result = VectorAI_client.safe_get(f"api/processes/status/{pid}")
+        result = vectorai_client.safe_get(f"api/processes/status/{pid}")
         if result.get("success"):
             logger.info(f"✅ Process {pid} status retrieved")
         else:
@@ -3897,7 +3897,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Success status of the termination operation
         """
         logger.info(f"🛑 Terminating process {pid}")
-        result = VectorAI_client.safe_post(f"api/processes/terminate/{pid}", {})
+        result = vectorai_client.safe_post(f"api/processes/terminate/{pid}", {})
         if result.get("success"):
             logger.info(f"✅ Process {pid} terminated successfully")
         else:
@@ -3916,7 +3916,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Success status of the pause operation
         """
         logger.info(f"⏸️ Pausing process {pid}")
-        result = VectorAI_client.safe_post(f"api/processes/pause/{pid}", {})
+        result = vectorai_client.safe_post(f"api/processes/pause/{pid}", {})
         if result.get("success"):
             logger.info(f"✅ Process {pid} paused successfully")
         else:
@@ -3935,7 +3935,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Success status of the resume operation
         """
         logger.info(f"▶️ Resuming process {pid}")
-        result = VectorAI_client.safe_post(f"api/processes/resume/{pid}", {})
+        result = vectorai_client.safe_post(f"api/processes/resume/{pid}", {})
         if result.get("success"):
             logger.info(f"✅ Process {pid} resumed successfully")
         else:
@@ -3951,7 +3951,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Real-time dashboard with progress bars, system metrics, and process status
         """
         logger.info("📊 Getting process dashboard")
-        result = VectorAI_client.safe_get("api/processes/dashboard")
+        result = vectorai_client.safe_get("api/processes/dashboard")
         if result.get("success", True) and "total_processes" in result:
             total = result.get("total_processes", 0)
             logger.info(f"✅ Dashboard retrieved: {total} active processes")
@@ -3979,7 +3979,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         """
         try:
             logger.info(f"⚡ Executing command: {command}")
-            result = VectorAI_client.execute_command(command, use_cache)
+            result = vectorai_client.execute_command(command, use_cache)
             if "error" in result:
                 logger.error(f"❌ Command failed: {result['error']}")
                 return {
@@ -4031,7 +4031,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "keywords": keywords
         }
         logger.info(f"🔍 Monitoring CVE feeds for last {hours} hours | Severity: {severity_filter}")
-        result = VectorAI_client.safe_post("api/vuln-intel/cve-monitor", data)
+        result = vectorai_client.safe_post("api/vuln-intel/cve-monitor", data)
 
         if result.get("success"):
             cve_count = len(result.get("cve_monitoring", {}).get("cves", []))
@@ -4066,7 +4066,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "evasion_level": evasion_level
         }
         logger.info(f"🤖 Generating {exploit_type} exploit for {cve_id} | Target: {target_os} {target_arch}")
-        result = VectorAI_client.safe_post("api/vuln-intel/exploit-generate", data)
+        result = vectorai_client.safe_post("api/vuln-intel/exploit-generate", data)
 
         if result.get("success"):
             cve_analysis = result.get("cve_analysis", {})
@@ -4101,7 +4101,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "include_zero_days": include_zero_days
         }
         logger.info(f"🔗 Discovering attack chains for {target_software} | Depth: {attack_depth} | Zero-days: {include_zero_days}")
-        result = VectorAI_client.safe_post("api/vuln-intel/attack-chains", data)
+        result = vectorai_client.safe_post("api/vuln-intel/attack-chains", data)
 
         if result.get("success"):
             chains = result.get("attack_chain_discovery", {}).get("attack_chains", [])
@@ -4138,7 +4138,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "source_code_url": source_code_url
         }
         logger.info(f"🔬 Researching zero-day opportunities in {target_software} | Depth: {analysis_depth}")
-        result = VectorAI_client.safe_post("api/vuln-intel/zero-day-research", data)
+        result = vectorai_client.safe_post("api/vuln-intel/zero-day-research", data)
 
         if result.get("success"):
             research = result.get("zero_day_research", {})
@@ -4184,7 +4184,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "sources": sources
         }
         logger.info(f"🧠 Correlating threat intelligence for {len(indicator_list)} indicators | Timeframe: {timeframe}")
-        result = VectorAI_client.safe_post("api/vuln-intel/threat-feeds", data)
+        result = vectorai_client.safe_post("api/vuln-intel/threat-feeds", data)
 
         if result.get("success"):
             threat_intel = result.get("threat_intelligence", {})
@@ -4232,7 +4232,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         if target_context:
             logger.info(f"🎯 Target Context: {target_context}")
 
-        result = VectorAI_client.safe_post("api/ai/advanced-payload-generation", data)
+        result = vectorai_client.safe_post("api/ai/advanced-payload-generation", data)
 
         if result.get("success"):
             payload_gen = result.get("advanced_payload_generation", {})
@@ -4258,14 +4258,14 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info("📊 Generating vulnerability intelligence dashboard")
 
         # Get latest critical CVEs
-        latest_cves = VectorAI_client.safe_post("api/vuln-intel/cve-monitor", {
+        latest_cves = vectorai_client.safe_post("api/vuln-intel/cve-monitor", {
             "hours": 24,
             "severity_filter": "CRITICAL",
             "keywords": ""
         })
 
         # Get trending attack types
-        trending_research = VectorAI_client.safe_post("api/vuln-intel/zero-day-research", {
+        trending_research = vectorai_client.safe_post("api/vuln-intel/zero-day-research", {
             "target_software": "web applications",
             "analysis_depth": "quick"
         })
@@ -4417,7 +4417,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Live dashboard with visual process monitoring and system metrics
         """
         logger.info("📊 Fetching live process dashboard")
-        result = VectorAI_client.safe_get("api/processes/dashboard")
+        result = vectorai_client.safe_get("api/processes/dashboard")
         if result.get("success", True):
             logger.info("✅ Live dashboard retrieved successfully")
         else:
@@ -4451,7 +4451,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             # Create individual vulnerability cards
             vulnerability_cards = []
             for vuln in vuln_data:
-                card_result = VectorAI_client.safe_post("api/visual/vulnerability-card", vuln)
+                card_result = vectorai_client.safe_post("api/visual/vulnerability-card", vuln)
                 if card_result.get("success"):
                     vulnerability_cards.append(card_result.get("vulnerability_card", ""))
 
@@ -4463,7 +4463,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
                 "execution_time": 0
             }
 
-            summary_result = VectorAI_client.safe_post("api/visual/summary-report", summary_data)
+            summary_result = vectorai_client.safe_post("api/visual/summary-report", summary_data)
 
             logger.info("✅ Vulnerability report created successfully")
             return {
@@ -4499,7 +4499,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "success": success
         }
 
-        result = VectorAI_client.safe_post("api/visual/tool-output", data)
+        result = vectorai_client.safe_post("api/visual/tool-output", data)
         if result.get("success"):
             logger.info(f"✅ Tool output formatted successfully for {tool_name}")
         else:
@@ -4535,7 +4535,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "findings": findings
         }
 
-        result = VectorAI_client.safe_post("api/visual/summary-report", summary_data)
+        result = vectorai_client.safe_post("api/visual/summary-report", summary_data)
         if result.get("success"):
             logger.info("✅ Scan summary created successfully")
         else:
@@ -4554,7 +4554,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info("📈 Fetching system metrics")
 
         # Get telemetry data
-        telemetry_result = VectorAI_client.safe_get("api/telemetry")
+        telemetry_result = vectorai_client.safe_get("api/telemetry")
 
         if telemetry_result.get("success", True):
             logger.info("✅ System metrics retrieved successfully")
@@ -4606,7 +4606,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info(f"🧠 Analyzing target intelligence for: {target}")
 
         data = {"target": target}
-        result = VectorAI_client.safe_post("api/intelligence/analyze-target", data)
+        result = vectorai_client.safe_post("api/intelligence/analyze-target", data)
 
         if result.get("success"):
             profile = result.get("target_profile", {})
@@ -4634,7 +4634,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "target": target,
             "objective": objective
         }
-        result = VectorAI_client.safe_post("api/intelligence/select-tools", data)
+        result = vectorai_client.safe_post("api/intelligence/select-tools", data)
 
         if result.get("success"):
             tools = result.get("selected_tools", [])
@@ -4671,7 +4671,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "tool": tool,
             "context": context_dict
         }
-        result = VectorAI_client.safe_post("api/intelligence/optimize-parameters", data)
+        result = vectorai_client.safe_post("api/intelligence/optimize-parameters", data)
 
         if result.get("success"):
             params = result.get("optimized_parameters", {})
@@ -4699,7 +4699,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "target": target,
             "objective": objective
         }
-        result = VectorAI_client.safe_post("api/intelligence/create-attack-chain", data)
+        result = vectorai_client.safe_post("api/intelligence/create-attack-chain", data)
 
         if result.get("success"):
             chain = result.get("attack_chain", {})
@@ -4733,7 +4733,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "objective": objective,
             "max_tools": max_tools
         }
-        result = VectorAI_client.safe_post("api/intelligence/smart-scan", data)
+        result = vectorai_client.safe_post("api/intelligence/smart-scan", data)
 
         if result.get("success"):
             scan_results = result.get("scan_results", {})
@@ -4780,7 +4780,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info(f"🔍 Detecting technologies for {target}")
 
         data = {"target": target}
-        result = VectorAI_client.safe_post("api/intelligence/technology-detection", data)
+        result = vectorai_client.safe_post("api/intelligence/technology-detection", data)
 
         if result.get("success"):
             technologies = result.get("detected_technologies", [])
@@ -4813,14 +4813,14 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info(f"🕵️  Starting AI reconnaissance workflow for {target} (depth: {depth})")
 
         # First analyze the target
-        analysis_result = VectorAI_client.safe_post("api/intelligence/analyze-target", {"target": target})
+        analysis_result = vectorai_client.safe_post("api/intelligence/analyze-target", {"target": target})
 
         if not analysis_result.get("success"):
             return analysis_result
 
         # Create attack chain for reconnaissance
         objective = "comprehensive" if depth == "deep" else "quick" if depth == "surface" else "comprehensive"
-        chain_result = VectorAI_client.safe_post("api/intelligence/create-attack-chain", {
+        chain_result = vectorai_client.safe_post("api/intelligence/create-attack-chain", {
             "target": target,
             "objective": objective
         })
@@ -4829,7 +4829,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             return chain_result
 
         # Execute the reconnaissance
-        scan_result = VectorAI_client.safe_post("api/intelligence/smart-scan", {
+        scan_result = vectorai_client.safe_post("api/intelligence/smart-scan", {
             "target": target,
             "objective": objective,
             "max_tools": 8 if depth == "deep" else 3 if depth == "surface" else 5
@@ -4862,7 +4862,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         logger.info(f"🔬 Starting AI vulnerability assessment for {target}")
 
         # Analyze target first
-        analysis_result = VectorAI_client.safe_post("api/intelligence/analyze-target", {"target": target})
+        analysis_result = vectorai_client.safe_post("api/intelligence/analyze-target", {"target": target})
 
         if not analysis_result.get("success"):
             return analysis_result
@@ -4881,7 +4881,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             objective = "quick"
 
         # Execute vulnerability assessment
-        scan_result = VectorAI_client.safe_post("api/intelligence/smart-scan", {
+        scan_result = vectorai_client.safe_post("api/intelligence/smart-scan", {
             "target": target,
             "objective": objective,
             "max_tools": 6
@@ -4930,7 +4930,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🎯 Creating reconnaissance workflow for {domain}")
-        result = VectorAI_client.safe_post("api/bugbounty/reconnaissance-workflow", data)
+        result = vectorai_client.safe_post("api/bugbounty/reconnaissance-workflow", data)
 
         if result.get("success"):
             workflow = result.get("workflow", {})
@@ -4961,7 +4961,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🎯 Creating vulnerability hunting workflow for {domain}")
-        result = VectorAI_client.safe_post("api/bugbounty/vulnerability-hunting-workflow", data)
+        result = vectorai_client.safe_post("api/bugbounty/vulnerability-hunting-workflow", data)
 
         if result.get("success"):
             workflow = result.get("workflow", {})
@@ -4989,7 +4989,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🎯 Creating business logic testing workflow for {domain}")
-        result = VectorAI_client.safe_post("api/bugbounty/business-logic-workflow", data)
+        result = vectorai_client.safe_post("api/bugbounty/business-logic-workflow", data)
 
         if result.get("success"):
             workflow = result.get("workflow", {})
@@ -5014,7 +5014,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         data = {"domain": domain}
 
         logger.info(f"🎯 Creating OSINT gathering workflow for {domain}")
-        result = VectorAI_client.safe_post("api/bugbounty/osint-workflow", data)
+        result = vectorai_client.safe_post("api/bugbounty/osint-workflow", data)
 
         if result.get("success"):
             workflow = result.get("workflow", {})
@@ -5039,7 +5039,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         data = {"target_url": target_url}
 
         logger.info(f"🎯 Creating file upload testing workflow for {target_url}")
-        result = VectorAI_client.safe_post("api/bugbounty/file-upload-testing", data)
+        result = vectorai_client.safe_post("api/bugbounty/file-upload-testing", data)
 
         if result.get("success"):
             workflow = result.get("workflow", {})
@@ -5077,7 +5077,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"🎯 Creating comprehensive bug bounty assessment for {domain}")
-        result = VectorAI_client.safe_post("api/bugbounty/comprehensive-assessment", data)
+        result = vectorai_client.safe_post("api/bugbounty/comprehensive-assessment", data)
 
         if result.get("success"):
             assessment = result.get("assessment", {})
@@ -5180,7 +5180,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"{VectorAIColors.FIRE_RED}🔥 Starting HTTP Framework {action}: {url}{VectorAIColors.RESET}")
-        result = VectorAI_client.safe_post("api/tools/http-framework", data_payload)
+        result = vectorai_client.safe_post("api/tools/http-framework", data_payload)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ HTTP Framework {action} completed for {url}{VectorAIColors.RESET}")
@@ -5221,7 +5221,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"{VectorAIColors.CRIMSON}🌐 Starting Browser Agent {action}: {url}{VectorAIColors.RESET}")
-        result = VectorAI_client.safe_post("api/tools/browser-agent", data_payload)
+        result = vectorai_client.safe_post("api/tools/browser-agent", data_payload)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ Browser Agent {action} completed for {url}{VectorAIColors.RESET}")
@@ -5247,19 +5247,19 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         """Set match/replace rules used to rewrite parts of URL/query/headers/body before sending.
         Rule format: {'where':'url|query|headers|body','pattern':'regex','replacement':'string'}"""
         payload = {"action": "set_rules", "rules": rules}
-        return VectorAI_client.safe_post("api/tools/http-framework", payload)
+        return vectorai_client.safe_post("api/tools/http-framework", payload)
 
     @mcp.tool()
     def http_set_scope(host: str, include_subdomains: bool = True) -> Dict[str, Any]:
         """Define in-scope host (and optionally subdomains) so out-of-scope requests are skipped."""
         payload = {"action": "set_scope", "host": host, "include_subdomains": include_subdomains}
-        return VectorAI_client.safe_post("api/tools/http-framework", payload)
+        return vectorai_client.safe_post("api/tools/http-framework", payload)
 
     @mcp.tool()
     def http_repeater(request_spec: dict) -> Dict[str, Any]:
         """Send a crafted request (Burp Repeater equivalent). request_spec keys: url, method, headers, cookies, data."""
         payload = {"action": "repeater", "request": request_spec}
-        return VectorAI_client.safe_post("api/tools/http-framework", payload)
+        return vectorai_client.safe_post("api/tools/http-framework", payload)
 
     @mcp.tool()
     def http_intruder(url: str, method: str = "GET", location: str = "query", params: list = None,
@@ -5276,7 +5276,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             "base_data": base_data or {},
             "max_requests": max_requests
         }
-        return VectorAI_client.safe_post("api/tools/http-framework", payload)
+        return vectorai_client.safe_post("api/tools/http-framework", payload)
 
     @mcp.tool()
     def burpsuite_alternative_scan(target: str, scan_type: str = "comprehensive",
@@ -5304,7 +5304,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"{VectorAIColors.BLOOD_RED}🔥 Starting Burp Suite Alternative {scan_type} scan: {target}{VectorAIColors.RESET}")
-        result = VectorAI_client.safe_post("api/tools/burpsuite-alternative", data_payload)
+        result = vectorai_client.safe_post("api/tools/burpsuite-alternative", data_payload)
 
         if result.get("success"):
             logger.info(f"{VectorAIColors.SUCCESS}✅ Burp Suite Alternative scan completed for {target}{VectorAIColors.RESET}")
@@ -5348,7 +5348,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
             Error handling statistics and patterns
         """
         logger.info(f"{VectorAIColors.ELECTRIC_PURPLE}📊 Retrieving error handling statistics{VectorAIColors.RESET}")
-        result = VectorAI_client.safe_get("api/error-handling/statistics")
+        result = vectorai_client.safe_get("api/error-handling/statistics")
 
         if result.get("success"):
             stats = result.get("statistics", {})
@@ -5391,7 +5391,7 @@ def setup_mcp_server(VectorAI_client: VectorAIClient) -> FastMCP:
         }
 
         logger.info(f"{VectorAIColors.RUBY}🧪 Testing error recovery for {tool_name} with {error_type}{VectorAIColors.RESET}")
-        result = VectorAI_client.safe_post("api/error-handling/test-recovery", data_payload)
+        result = vectorai_client.safe_post("api/error-handling/test-recovery", data_payload)
 
         if result.get("success"):
             recovery_strategy = result.get("recovery_strategy", {})
@@ -5438,10 +5438,10 @@ def main():
 
     try:
         # Initialize the VectorAI client
-        VectorAI_client = VectorAIClient(args.server, args.timeout)
+        vectorai_client = VectorAIClient(args.server, args.timeout)
 
         # Check server health and log the result
-        health = VectorAI_client.check_health()
+        health = vectorai_client.check_health()
         if "error" in health:
             logger.warning(f"⚠️  Unable to connect to VectorAI API server at {args.server}: {health['error']}")
             logger.warning("🚀 MCP server will start, but tool execution may fail")
@@ -5456,7 +5456,7 @@ def main():
                     logger.warning(f"❌ Missing tools: {', '.join(missing_tools[:5])}{'...' if len(missing_tools) > 5 else ''}")
 
         # Set up and run the MCP server
-        mcp = setup_mcp_server(VectorAI_client)
+        mcp = setup_mcp_server(vectorai_client)
         logger.info("🚀 Starting VectorAI MCP server")
         logger.info("🤖 Ready to serve AI agents with enhanced cybersecurity capabilities")
         mcp.run()
