@@ -1,90 +1,111 @@
-# VectorAI MCP Server - Docker Setup
+# VectorAI MCP Server
 
-A complete Docker-based setup for VectorAI MCP Server with 70+ security tools pre-installed for AI-assisted penetration testing.
+🔥 **AI-Powered Penetration Testing Framework** with 70+ pre-installed security tools.
 
-## 🚀 Quick Start
-
-### Option 1: Pull Pre-built Image (Recommended - Fastest)
-
-```bash
-# Pull the pre-built image from GitHub Container Registry
-docker pull ghcr.io/zebbern/vectorai:latest
-
-# Run the container
-docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
-
-# Verify it's running
-curl http://localhost:8888/health
-```
-
-**Or use Docker Compose with the pre-built image:**
-
-```bash
-# Clone just for the compose file and MCP client
-git clone https://github.com/zebbern/vectorai-docker.git
-cd vectorai-docker
-
-# Start with pre-built image (no build required)
-docker compose -f docker-compose.pull.yml up -d
-```
-
-### Option 2: Build from Source
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/zebbern/vectorai-docker.git
-cd vectorai-docker
-
-# 2. Install Python dependencies (for the MCP client)
-pip install -r requirements.txt
-
-# 3. Build and start the container (first time takes 15-30 minutes)
-docker compose up -d --build
-
-# 4. Verify it's running
-curl http://localhost:8888/health
-```
-
-Then open VS Code in this folder - the `.vscode/mcp.json` is already configured!
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fzebbern%2Fvectorai-blue)](https://ghcr.io/zebbern/vectorai)
+[![Tools](https://img.shields.io/badge/Tools-70%2B-green)](https://github.com/zebbern/vectorai-docker)
 
 ---
 
-## 📋 Prerequisites
-
-- **Docker Desktop** installed and running
-- **Python 3.8+** (for the MCP client)
-- **VS Code** with GitHub Copilot extension
-
-## 🔧 Detailed Setup
-
-### Build and Start the Container
+## 🚀 Quick Start (2 Commands)
 
 ```bash
-# Copy environment file (optional: customize settings)
-cp .env.example .env
-
-# Build and start the container
-docker compose up -d --build
-
-# Watch the build logs
-docker compose logs -f
+# Pull and run
+docker pull ghcr.io/zebbern/vectorai:latest
+docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
 ```
 
-### Verify the Server is Running
-
+**Verify it's running:**
 ```bash
-# Check container status
-docker compose ps
-
-# Check server health (should show 70+ tools available)
 curl http://localhost:8888/health
 ```
 
-### Configure VS Code
+That's it! No build required. 🎉
 
-Open this folder in VS Code. The `.vscode/mcp.json` is already configured.
+---
 
-To add to another project, copy this to your project's `.vscode/mcp.json`:
+## 🛑 Stop / Manage Containers
+
+### Check if VectorAI is Running
+```bash
+# Check running containers
+docker ps | grep vectorai
+
+# Check all containers (including stopped)
+docker ps -a | grep vectorai
+```
+
+### Stop VectorAI
+```bash
+# Stop the container
+docker stop vectorai
+
+# Stop and remove the container
+docker stop vectorai && docker rm vectorai
+```
+
+### Restart VectorAI
+```bash
+docker restart vectorai
+```
+
+### View Logs
+```bash
+# Follow logs in real-time
+docker logs -f vectorai
+
+# Last 100 lines
+docker logs --tail 100 vectorai
+```
+
+### Enter Container Shell
+```bash
+docker exec -it vectorai bash
+```
+
+---
+
+## 📦 Alternative: Docker Compose
+
+### Option A: Use Pre-built Image (Recommended)
+```bash
+git clone https://github.com/zebbern/vectorai-docker.git
+cd vectorai-docker
+docker compose -f docker-compose.pull.yml up -d
+```
+
+### Option B: Build from Source
+```bash
+git clone https://github.com/zebbern/vectorai-docker.git
+cd vectorai-docker
+docker compose up -d --build  # Takes 15-30 minutes
+```
+
+### Docker Compose Commands
+```bash
+# Start
+docker compose up -d
+
+# Stop
+docker compose down
+
+# Stop and remove volumes
+docker compose down -v
+
+# View status
+docker compose ps
+
+# View logs
+docker compose logs -f
+```
+
+---
+
+## 🔧 VS Code Integration
+
+### Configure MCP Client
+
+Create `.vscode/mcp.json` in your project:
 
 ```json
 {
@@ -93,7 +114,7 @@ To add to another project, copy this to your project's `.vscode/mcp.json`:
             "type": "stdio",
             "command": "python",
             "args": [
-                "${workspaceFolder}/vectorai-docker/vectorai_mcp_client.py",
+                "vectorai_mcp_client.py",
                 "--server",
                 "http://localhost:8888"
             ]
@@ -102,176 +123,122 @@ To add to another project, copy this to your project's `.vscode/mcp.json`:
 }
 ```
 
-## 📦 What's Included
+### Install Python Dependencies
+```bash
+pip install requests fastmcp
+```
 
-### Security Tools (70+)
+---
+
+## 🛠️ Included Tools (70+)
 
 | Category | Tools |
 |----------|-------|
-| **Network Recon** | nmap, masscan, rustscan, amass, subfinder, fierce, dnsenum, theharvester |
-| **Web Security** | gobuster, feroxbuster, ffuf, nuclei, nikto, sqlmap, wpscan, ZAP, httpx |
-| **Password** | hydra, john, hashcat, medusa, patator, crackmapexec, evil-winrm |
-| **Binary Analysis** | gdb, radare2, binwalk, ghidra, checksec, pwntools, ropper, ROPgadget |
-| **Cloud Security** | prowler, scout-suite, trivy, checkov, aws-cli |
-| **Forensics/CTF** | volatility3, foremost, steghide, exiftool, testdisk |
-| **Exploitation** | Metasploit Framework, searchsploit |
+| **Network** | nmap, masscan, rustscan, amass, subfinder, dnsenum, theharvester |
+| **Web** | gobuster, ffuf, nuclei, nikto, sqlmap, wpscan, httpx, OWASP ZAP |
+| **Password** | hydra, john, hashcat, medusa, crackmapexec, evil-winrm |
+| **Binary** | gdb, radare2, binwalk, ghidra, pwntools, ropper, ROPgadget |
+| **Cloud** | prowler, scout-suite, trivy, checkov, aws-cli |
+| **Forensics** | volatility3, foremost, steghide, exiftool |
+| **Exploit** | Metasploit Framework, searchsploit |
 
-### AI Agents (12+)
-
-- IntelligentDecisionEngine
-- BugBountyWorkflowManager
-- CTFWorkflowManager
-- CVEIntelligenceManager
-- AIExploitGenerator
-- VulnerabilityCorrelator
-- And more...
-
-## 🛠️ Common Commands
-
-### Container Management
-
-```bash
-# Start the container
-docker compose up -d
-
-# Stop the container
-docker compose down
-
-# Restart the container
-docker compose restart
-
-# View logs
-docker compose logs -f vectorai
-
-# Enter the container shell
-docker compose exec vectorai bash
-
-# Rebuild after changes
-docker compose build --no-cache
-docker compose up -d
-```
-
-### Verify Tools
-
-```bash
-# Run tool verification inside container
-docker compose exec vectorai /app/entrypoint.sh verify
-```
-
-### Health Check
-
-```bash
-# Manual health check
-curl http://localhost:8888/health
-
-# Check telemetry
-curl http://localhost:8888/api/telemetry
-```
+---
 
 ## ⚙️ Configuration
 
 ### Environment Variables
 
-Edit `.env` to customize:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VECTORAI_PORT` | 8888 | Server port |
-| `VECTORAI_DEBUG` | false | Enable debug mode |
-| `CPU_LIMIT` | 4 | Max CPU cores |
-| `MEMORY_LIMIT` | 8G | Max memory |
-| `TZ` | UTC | Timezone |
+| `VECTORAI_PORT` | 8888 | API server port |
+| `VECTORAI_DEBUG` | false | Debug mode |
 
-### Cloud Provider Credentials
+### Custom Configuration
+```bash
+# Copy example config
+cp .env.example .env
 
-For cloud security scanning, add credentials to `.env`:
-
-```env
-# AWS
-AWS_ACCESS_KEY_ID=your_key
-AWS_SECRET_ACCESS_KEY=your_secret
-AWS_DEFAULT_REGION=us-east-1
+# Edit as needed
+nano .env
 ```
 
-### Custom Wordlists
+---
 
-Mount custom wordlists by setting in `.env`:
+## 🔍 Health Check & API
 
-```env
-WORDLISTS_PATH=/path/to/your/wordlists
+### Health Endpoint
+```bash
+curl http://localhost:8888/health
 ```
 
-## 📋 Using with VS Code Copilot
-
-Once the container is running and mcp.json is configured:
-
-1. Open VS Code
-2. Open the Copilot Chat
-3. The VectorAI tools will be available automatically
-
-### Example Prompts
-
+### Test Command Execution
+```bash
+curl -X POST http://localhost:8888/api/command \
+  -H "Content-Type: application/json" \
+  -d '{"command": "nmap --version"}'
 ```
-"I'm a security researcher testing my own website example.com. 
-Please run a subdomain enumeration using the vectorai tools."
 
-"Use nuclei to scan example.com for common vulnerabilities."
-
-"Run a comprehensive reconnaissance workflow on my test domain."
-```
+---
 
 ## 🔧 Troubleshooting
 
-### Container won't start
-
+### Port Already in Use
 ```bash
-# Check logs for errors
-docker compose logs vectorai
+# Check what's using port 8888
+netstat -ano | findstr 8888  # Windows
+lsof -i :8888                # Linux/Mac
 
-# Check if port 8888 is in use
-netstat -an | findstr 8888
-# or on Linux/Mac:
-lsof -i :8888
+# Use different port
+docker run -d --name vectorai -p 9999:8888 ghcr.io/zebbern/vectorai:latest
 ```
 
-### MCP connection issues
-
-1. Verify container is running: `docker compose ps`
-2. Check server health: `curl http://localhost:8888/health`
-3. Ensure Python is in PATH
-4. Install required packages: `pip install requests fastmcp`
-
-### Build failures
-
+### Container Won't Start
 ```bash
-# Clean rebuild
-docker compose down
-docker system prune -f
-docker compose build --no-cache
-docker compose up -d
+# Check logs
+docker logs vectorai
+
+# Remove and recreate
+docker rm -f vectorai
+docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
 ```
 
-## 📊 Resource Requirements
+### Clean Everything
+```bash
+# Stop all VectorAI containers
+docker stop vectorai 2>/dev/null
+docker rm vectorai 2>/dev/null
+
+# Remove image (to re-download)
+docker rmi ghcr.io/zebbern/vectorai:latest
+```
+
+---
+
+## 📊 System Requirements
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
 | CPU | 2 cores | 4+ cores |
 | RAM | 4 GB | 8+ GB |
-| Disk | 15 GB | 25+ GB |
+| Disk | 25 GB | 30+ GB |
 
-**Note:** First build downloads Kali Linux base image (~5GB) and installs all tools.
+---
 
-## 🔒 Security Considerations
+## 🔒 Security Notice
 
-- This container has powerful security tools - use responsibly
-- Only run against authorized targets
-- Container runs with `no-new-privileges` security option
+⚠️ **Use responsibly.** This container contains powerful security tools.
+
+- Only test systems you own or have authorization to test
+- Container runs with security restrictions enabled
 - Consider network isolation for sensitive environments
+
+---
 
 ## 📝 License
 
 MIT License
 
-## 🆘 Support
+## 🔗 Links
 
-Open an issue on GitHub for support.
+- **GitHub**: https://github.com/zebbern/vectorai-docker
+- **Docker Image**: `ghcr.io/zebbern/vectorai:latest`
