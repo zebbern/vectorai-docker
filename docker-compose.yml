@@ -1,0 +1,111 @@
+# ============================================================================
+# VectorAI MCP Server - Docker Compose
+# Version: 6.0 (Dockerized)
+# ============================================================================
+#
+# Quick Start:
+#   docker compose up -d
+#
+# View logs:
+#   docker compose logs -f vectorai
+#
+# Stop:
+#   docker compose down
+#
+# Rebuild:
+#   docker compose build --no-cache
+#
+# ============================================================================
+
+services:
+  vectorai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vectorai
+    hostname: vectorai
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Port mapping
+    ports:
+      - "${VECTORAI_PORT:-8888}:8888"
+      - "${ZAP_PORT:-8080}:8080"
+    
+    # Environment variables
+    environment:
+      - VECTORAI_PORT=${VECTORAI_PORT:-8888}
+      - VECTORAI_HOST=0.0.0.0
+      - VECTORAI_DEBUG=${VECTORAI_DEBUG:-false}
+      - TZ=${TZ:-UTC}
+      # Chrome settings for headless browser
+      - CHROME_BIN=/usr/bin/chromium
+      - CHROMEDRIVER_PATH=/usr/bin/chromedriver
+      # Optional: Cloud provider credentials (mount via secrets or env)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    
+    # Volume mounts
+    volumes:
+      # Persist output and logs
+      - vectorai-output:/app/output
+      - vectorai-logs:/app/logs
+      - vectorai-cache:/app/cache
+      # Optional: Mount custom wordlists
+      - ${WORDLISTS_PATH:-./wordlists}:/app/wordlists:ro
+      # Optional: Mount nuclei templates
+      - ${NUCLEI_TEMPLATES:-./nuclei-templates}:/root/nuclei-templates:ro
+    
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-4}'
+          memory: ${MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Security options - allow capabilities needed for security tools
+    # Note: Some tools like nmap require elevated privileges
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_PTRACE
+    security_opt:
+      - apparmor:unconfined
+    
+    # Network
+    networks:
+      - vectorai-network
+
+# ============================================================================
+# Named Volumes
+# ============================================================================
+volumes:
+  vectorai-output:
+    driver: local
+  vectorai-logs:
+    driver: local
+  vectorai-cache:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  vectorai-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

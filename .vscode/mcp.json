@@ -1,0 +1,14 @@
+{
+	"servers": {
+		"vectorai": {
+			"type": "stdio",
+			"command": "python",
+			"args": [
+				"${workspaceFolder}/vectorai_mcp_client.py",
+				"--server",
+				"http://localhost:8888"
+			]
+		}
+	},
+	"inputs": []
+}

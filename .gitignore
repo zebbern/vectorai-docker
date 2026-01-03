@@ -1,0 +1,23 @@
+# VectorAI Docker - Ignore patterns
+
+# Environment files with secrets
+.env
+
+# Output directories (use volumes instead)
+output/
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

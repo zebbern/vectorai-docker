@@ -1,0 +1,39 @@
+# Docker ignore patterns for faster builds
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+
+# IDE/Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local data
+output/
+logs/
+*.log
+
+# Environment files (build uses defaults)
+.env
+
+# Wordlists and templates (mounted as volumes)
+wordlists/*
+!wordlists/.gitkeep
+nuclei-templates/*
+!nuclei-templates/.gitkeep
