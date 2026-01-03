@@ -2,7 +2,33 @@
 
 A complete Docker-based setup for VectorAI MCP Server with 70+ security tools pre-installed for AI-assisted penetration testing.
 
-## 🚀 Quick Start (4 Commands)
+## 🚀 Quick Start
+
+### Option 1: Pull Pre-built Image (Recommended - Fastest)
+
+```bash
+# Pull the pre-built image from GitHub Container Registry
+docker pull ghcr.io/zebbern/vectorai:latest
+
+# Run the container
+docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
+
+# Verify it's running
+curl http://localhost:8888/health
+```
+
+**Or use Docker Compose with the pre-built image:**
+
+```bash
+# Clone just for the compose file and MCP client
+git clone https://github.com/zebbern/vectorai-docker.git
+cd vectorai-docker
+
+# Start with pre-built image (no build required)
+docker compose -f docker-compose.pull.yml up -d
+```
+
+### Option 2: Build from Source
 
 ```bash
 # 1. Clone the repository

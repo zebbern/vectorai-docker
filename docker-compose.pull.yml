@@ -1,0 +1,40 @@
+# Docker Compose file for using the pre-built image from ghcr.io
+# Usage: docker compose -f docker-compose.pull.yml up -d
+
+services:
+  vectorai:
+    image: ghcr.io/zebbern/vectorai:latest
+    container_name: vectorai
+    ports:
+      - "${VECTORAI_PORT:-8888}:8888"  # VectorAI API
+      - "${ZAP_PORT:-8080}:8080"        # OWASP ZAP Proxy
+    environment:
+      - VECTORAI_PORT=8888
+      - VECTORAI_HOST=0.0.0.0
+      - VECTORAI_DEBUG=${VECTORAI_DEBUG:-false}
+      - VECTORAI_HOME=/app/vectorai
+    volumes:
+      - vectorai-output:/app/output
+      - vectorai-logs:/app/logs
+      - vectorai-cache:/app/cache
+    restart: unless-stopped
+    networks:
+      - vectorai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  vectorai-output:
+  vectorai-logs:
+  vectorai-cache:
+
+networks:
+  vectorai-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
