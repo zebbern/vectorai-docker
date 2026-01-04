@@ -19,6 +19,7 @@
 
 services:
   vectorai:
+    image: vectorai-docker-zebbern:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -53,6 +54,8 @@ services:
       - vectorai-output:/app/output
       - vectorai-logs:/app/logs
       - vectorai-cache:/app/cache
+      # Session storage with SQLite database and raw outputs
+      - vectorai-scans:/app/scans
       # Optional: Mount custom wordlists
       - ${WORDLISTS_PATH:-./wordlists}:/app/wordlists:ro
       # Optional: Mount nuclei templates
@@ -98,6 +101,8 @@ volumes:
   vectorai-logs:
     driver: local
   vectorai-cache:
+    driver: local
+  vectorai-scans:
     driver: local
 
 # ============================================================================

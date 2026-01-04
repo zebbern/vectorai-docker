@@ -3,7 +3,7 @@
 
 services:
   vectorai:
-    image: ghcr.io/zebbern/vectorai:latest
+    image: vectorai-docker-zebbern:latest
     container_name: vectorai
     ports:
       - "${VECTORAI_PORT:-8888}:8888"  # VectorAI API
@@ -17,6 +17,7 @@ services:
       - vectorai-output:/app/output
       - vectorai-logs:/app/logs
       - vectorai-cache:/app/cache
+      - vectorai-scans:/app/scans
     restart: unless-stopped
     networks:
       - vectorai-network
@@ -31,6 +32,7 @@ volumes:
   vectorai-output:
   vectorai-logs:
   vectorai-cache:
+  vectorai-scans:
 
 networks:
   vectorai-network:

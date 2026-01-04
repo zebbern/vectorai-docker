@@ -6780,6 +6780,22 @@ class AsyncJobManager:
                         job.message = result.get("stderr", "Command failed")[:200]
                     job.progress = 1.0
                     
+                    # Try to update session manager if available
+                    try:
+                        if 'session_manager' in globals():
+                            execution_time = job.completed_at - job.started_at if job.started_at else 0
+                            output = result.get("stdout", "") or result.get("stderr", "")
+                            exit_code = result.get("return_code", -1)
+                            session_manager.update_job_result(
+                                job_id, 
+                                job.status.value, 
+                                exit_code, 
+                                execution_time, 
+                                output
+                            )
+                    except Exception as sess_err:
+                        logger.debug(f"[*] Session update skipped for {job_id}: {sess_err}")
+                    
         except Exception as e:
             with self._lock:
                 job = self.jobs.get(job_id)
@@ -6869,6 +6885,638 @@ class AsyncJobManager:
 
 # Global async job manager
 job_manager = AsyncJobManager()
+
+# ============================================================================
+# SESSION MANAGEMENT SYSTEM (v6.3 - Persistent Storage with SQLite + Files)
+# ============================================================================
+
+import sqlite3
+from pathlib import Path
+
+# Session storage paths
+SCANS_DIR = Path("/app/scans")
+DB_PATH = SCANS_DIR / "vectorai_sessions.db"
+
+class SessionManager:
+    """Manages scan sessions with SQLite database and file storage"""
+    
+    def __init__(self):
+        self.scans_dir = SCANS_DIR
+        self.db_path = DB_PATH
+        self._init_storage()
+        self._init_database()
+    
+    def _init_storage(self):
+        """Initialize storage directories"""
+        self.scans_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _init_database(self):
+        """Initialize SQLite database schema"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executescript("""
+                -- Sessions table
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    target TEXT NOT NULL,
+                    session_type TEXT DEFAULT 'manual',
+                    status TEXT DEFAULT 'running',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    total_jobs INTEGER DEFAULT 0,
+                    completed_jobs INTEGER DEFAULT 0,
+                    failed_jobs INTEGER DEFAULT 0,
+                    notes TEXT
+                );
+                
+                -- Jobs table (linked to sessions)
+                CREATE TABLE IF NOT EXISTS session_jobs (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    exit_code INTEGER,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    execution_time REAL,
+                    output_file TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                );
+                
+                -- Findings table (parsed results)
+                CREATE TABLE IF NOT EXISTS findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    job_id TEXT,
+                    tool_name TEXT NOT NULL,
+                    finding_type TEXT NOT NULL,
+                    severity TEXT DEFAULT 'info',
+                    title TEXT,
+                    description TEXT,
+                    target TEXT,
+                    evidence TEXT,
+                    raw_output TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id),
+                    FOREIGN KEY (job_id) REFERENCES session_jobs(id)
+                );
+                
+                -- Discovered assets table
+                CREATE TABLE IF NOT EXISTS assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    asset_type TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    source_tool TEXT,
+                    metadata TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id),
+                    UNIQUE(session_id, asset_type, value)
+                );
+                
+                -- Create indexes for performance
+                CREATE INDEX IF NOT EXISTS idx_session_jobs_session ON session_jobs(session_id);
+                CREATE INDEX IF NOT EXISTS idx_findings_session ON findings(session_id);
+                CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+                CREATE INDEX IF NOT EXISTS idx_assets_session ON assets(session_id);
+                CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(asset_type);
+            """)
+            conn.commit()
+    
+    def create_session(self, target: str, session_type: str = "manual", notes: str = "") -> str:
+        """Create a new scan session"""
+        session_id = hashlib.md5(f"{target}_{time.time()}_{os.urandom(4).hex()}".encode()).hexdigest()[:16]
+        
+        # Create session directory
+        session_dir = self.scans_dir / f"{datetime.now().strftime('%Y-%m-%d')}_{target.replace('.', '_').replace('/', '_')}_{session_id[:8]}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "raw").mkdir(exist_ok=True)
+        (session_dir / "parsed").mkdir(exist_ok=True)
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO sessions (id, target, session_type, notes)
+                VALUES (?, ?, ?, ?)
+            """, (session_id, target, session_type, notes))
+            conn.commit()
+        
+        # Store session dir path in metadata
+        self._update_session_metadata(session_id, {"dir": str(session_dir)})
+        
+        return session_id
+    
+    def _update_session_metadata(self, session_id: str, metadata: dict):
+        """Store session metadata as JSON in notes field"""
+        with sqlite3.connect(self.db_path) as conn:
+            current = conn.execute("SELECT notes FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            try:
+                existing = json.loads(current[0]) if current and current[0] else {}
+            except:
+                existing = {}
+            existing.update(metadata)
+            conn.execute("UPDATE sessions SET notes = ? WHERE id = ?", (json.dumps(existing), session_id))
+            conn.commit()
+    
+    def get_session_dir(self, session_id: str) -> Optional[Path]:
+        """Get session directory path"""
+        with sqlite3.connect(self.db_path) as conn:
+            result = conn.execute("SELECT notes FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if result and result[0]:
+                try:
+                    metadata = json.loads(result[0])
+                    return Path(metadata.get("dir", ""))
+                except:
+                    pass
+        return None
+    
+    def add_job(self, session_id: str, job_id: str, tool_name: str, command: str) -> bool:
+        """Add a job to a session"""
+        try:
+            session_dir = self.get_session_dir(session_id)
+            output_file = str(session_dir / "raw" / f"{tool_name}_{job_id[:8]}.txt") if session_dir else None
+            
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO session_jobs (id, session_id, tool_name, command, output_file)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (job_id, session_id, tool_name, command, output_file))
+                conn.execute("UPDATE sessions SET total_jobs = total_jobs + 1 WHERE id = ?", (session_id,))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"[!!] Error adding job to session: {e}")
+            return False
+    
+    def update_job_result(self, job_id: str, status: str, exit_code: int, 
+                          execution_time: float, output: str) -> bool:
+        """Update job result and save output to file"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Get job info
+                job = conn.execute("""
+                    SELECT session_id, output_file, tool_name FROM session_jobs WHERE id = ?
+                """, (job_id,)).fetchone()
+                
+                if not job:
+                    return False
+                
+                session_id, output_file, tool_name = job
+                
+                # Save raw output to file
+                if output_file and output:
+                    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+                    with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+                        f.write(f"# Tool: {tool_name}\n")
+                        f.write(f"# Job ID: {job_id}\n")
+                        f.write(f"# Timestamp: {datetime.now().isoformat()}\n")
+                        f.write(f"# Exit Code: {exit_code}\n")
+                        f.write(f"# Execution Time: {execution_time:.2f}s\n")
+                        f.write("=" * 80 + "\n\n")
+                        f.write(output)
+                
+                # Update job in database
+                conn.execute("""
+                    UPDATE session_jobs 
+                    SET status = ?, exit_code = ?, execution_time = ?, completed_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (status, exit_code, execution_time, job_id))
+                
+                # Update session counters
+                if status == "completed":
+                    conn.execute("UPDATE sessions SET completed_jobs = completed_jobs + 1 WHERE id = ?", (session_id,))
+                elif status == "failed":
+                    conn.execute("UPDATE sessions SET failed_jobs = failed_jobs + 1 WHERE id = ?", (session_id,))
+                
+                conn.commit()
+                
+                # Parse and store findings
+                self._parse_and_store_findings(session_id, job_id, tool_name, output)
+                
+                return True
+        except Exception as e:
+            logger.error(f"[!!] Error updating job result: {e}")
+            return False
+    
+    def _parse_and_store_findings(self, session_id: str, job_id: str, tool_name: str, output: str):
+        """Parse tool output and store findings/assets"""
+        if not output:
+            return
+        
+        findings = []
+        assets = []
+        
+        # Tool-specific parsing
+        if "nuclei" in tool_name.lower():
+            findings.extend(self._parse_nuclei_output(output))
+        elif "nmap" in tool_name.lower():
+            findings.extend(self._parse_nmap_output(output))
+            assets.extend(self._parse_nmap_ports(output))
+        elif "subfinder" in tool_name.lower() or "amass" in tool_name.lower():
+            assets.extend(self._parse_subdomain_output(output))
+        elif "ffuf" in tool_name.lower() or "gobuster" in tool_name.lower() or "feroxbuster" in tool_name.lower():
+            assets.extend(self._parse_directory_output(output))
+        elif "httpx" in tool_name.lower():
+            assets.extend(self._parse_httpx_output(output))
+        elif "gau" in tool_name.lower() or "waybackurls" in tool_name.lower():
+            assets.extend(self._parse_url_output(output))
+        
+        # Store findings
+        with sqlite3.connect(self.db_path) as conn:
+            for finding in findings:
+                conn.execute("""
+                    INSERT INTO findings (session_id, job_id, tool_name, finding_type, severity, title, description, target, evidence, raw_output)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (session_id, job_id, tool_name, finding.get("type", "unknown"), 
+                      finding.get("severity", "info"), finding.get("title", ""),
+                      finding.get("description", ""), finding.get("target", ""),
+                      finding.get("evidence", ""), finding.get("raw", "")[:2000]))
+            
+            # Store assets (ignore duplicates)
+            for asset in assets:
+                try:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO assets (session_id, asset_type, value, source_tool, metadata)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (session_id, asset.get("type", "unknown"), asset.get("value", ""),
+                          tool_name, json.dumps(asset.get("metadata", {}))))
+                except:
+                    pass
+            
+            conn.commit()
+    
+    def _parse_nuclei_output(self, output: str) -> List[Dict]:
+        """Parse Nuclei output for findings"""
+        findings = []
+        # Nuclei format: [template-id] [protocol] [severity] target [extra-info]
+        # Example: [cve-2021-44228] [http] [critical] https://target.com
+        pattern = r'\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[([^\]]+)\]\s*(\S+)(?:\s*\[([^\]]+)\])?'
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith('[INF]') or line.startswith('[WRN]'):
+                continue
+            
+            match = re.search(pattern, line)
+            if match:
+                template_id, protocol, severity, target = match.groups()[:4]
+                extra = match.group(5) if match.lastindex >= 5 else ""
+                
+                findings.append({
+                    "type": "vulnerability",
+                    "severity": severity.lower(),
+                    "title": template_id,
+                    "description": f"Nuclei detected {template_id} via {protocol}",
+                    "target": target,
+                    "evidence": extra or line,
+                    "raw": line
+                })
+        
+        return findings
+    
+    def _parse_nmap_output(self, output: str) -> List[Dict]:
+        """Parse Nmap output for vulnerability findings"""
+        findings = []
+        
+        # Look for vulnerability script outputs
+        vuln_patterns = [
+            r'(CVE-\d{4}-\d+)',
+            r'VULNERABLE',
+            r'State:\s*VULNERABLE',
+        ]
+        
+        for line in output.split('\n'):
+            for pattern in vuln_patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    # Extract CVE if present
+                    cve_match = re.search(r'(CVE-\d{4}-\d+)', line, re.IGNORECASE)
+                    findings.append({
+                        "type": "vulnerability",
+                        "severity": "high" if cve_match else "medium",
+                        "title": cve_match.group(1) if cve_match else "Nmap Vulnerability",
+                        "description": line.strip(),
+                        "target": "",
+                        "evidence": line,
+                        "raw": line
+                    })
+                    break
+        
+        return findings
+    
+    def _parse_nmap_ports(self, output: str) -> List[Dict]:
+        """Parse Nmap output for open ports"""
+        assets = []
+        # Pattern: 22/tcp open ssh OpenSSH 7.4
+        port_pattern = r'(\d+)/(tcp|udp)\s+open\s+(\S+)(?:\s+(.*))?'
+        
+        for line in output.split('\n'):
+            match = re.search(port_pattern, line)
+            if match:
+                port, protocol, service, version = match.groups()
+                assets.append({
+                    "type": "open_port",
+                    "value": f"{port}/{protocol}",
+                    "metadata": {
+                        "service": service,
+                        "version": version.strip() if version else "",
+                        "raw": line.strip()
+                    }
+                })
+        
+        return assets
+    
+    def _parse_subdomain_output(self, output: str) -> List[Dict]:
+        """Parse subdomain enumeration output"""
+        assets = []
+        seen = set()
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            # Match domain patterns
+            if re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)+$', line):
+                if line not in seen:
+                    seen.add(line)
+                    assets.append({
+                        "type": "subdomain",
+                        "value": line,
+                        "metadata": {}
+                    })
+        
+        return assets
+    
+    def _parse_directory_output(self, output: str) -> List[Dict]:
+        """Parse directory brute-force output"""
+        assets = []
+        seen = set()
+        
+        # Match URLs or paths with status codes
+        url_pattern = r'(https?://[^\s]+|/[^\s]*)\s*(?:\[(\d{3})\]|\(Status:\s*(\d{3})\)|(\d{3}))'
+        
+        for line in output.split('\n'):
+            match = re.search(url_pattern, line)
+            if match:
+                path = match.group(1)
+                status = match.group(2) or match.group(3) or match.group(4)
+                if path not in seen:
+                    seen.add(path)
+                    assets.append({
+                        "type": "endpoint",
+                        "value": path,
+                        "metadata": {"status_code": status}
+                    })
+        
+        return assets
+    
+    def _parse_httpx_output(self, output: str) -> List[Dict]:
+        """Parse httpx output for live hosts"""
+        assets = []
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if line.startswith('http'):
+                # Extract URL and any metadata
+                parts = line.split()
+                url = parts[0] if parts else line
+                assets.append({
+                    "type": "live_host",
+                    "value": url,
+                    "metadata": {"raw": line}
+                })
+        
+        return assets
+    
+    def _parse_url_output(self, output: str) -> List[Dict]:
+        """Parse URL discovery output (gau, waybackurls)"""
+        assets = []
+        seen = set()
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if line.startswith('http') and line not in seen:
+                seen.add(line)
+                # Check for interesting patterns
+                interesting = any(p in line.lower() for p in ['api', 'admin', 'login', 'config', '.json', '.xml', 'graphql', 'swagger'])
+                assets.append({
+                    "type": "url",
+                    "value": line,
+                    "metadata": {"interesting": interesting}
+                })
+        
+        return assets
+    
+    def get_session(self, session_id: str) -> Optional[Dict]:
+        """Get session details"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            session = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if session:
+                return dict(session)
+        return None
+    
+    def get_session_jobs(self, session_id: str) -> List[Dict]:
+        """Get all jobs for a session"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            jobs = conn.execute("SELECT * FROM session_jobs WHERE session_id = ? ORDER BY started_at", (session_id,)).fetchall()
+            return [dict(job) for job in jobs]
+    
+    def get_session_findings(self, session_id: str, severity: str = None) -> List[Dict]:
+        """Get findings for a session, optionally filtered by severity"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if severity:
+                findings = conn.execute("""
+                    SELECT * FROM findings WHERE session_id = ? AND severity = ? ORDER BY created_at
+                """, (session_id, severity)).fetchall()
+            else:
+                findings = conn.execute("""
+                    SELECT * FROM findings WHERE session_id = ? ORDER BY 
+                    CASE severity 
+                        WHEN 'critical' THEN 1 
+                        WHEN 'high' THEN 2 
+                        WHEN 'medium' THEN 3 
+                        WHEN 'low' THEN 4 
+                        ELSE 5 
+                    END, created_at
+                """, (session_id,)).fetchall()
+            return [dict(f) for f in findings]
+    
+    def get_session_assets(self, session_id: str, asset_type: str = None) -> List[Dict]:
+        """Get discovered assets for a session"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if asset_type:
+                assets = conn.execute("""
+                    SELECT * FROM assets WHERE session_id = ? AND asset_type = ?
+                """, (session_id, asset_type)).fetchall()
+            else:
+                assets = conn.execute("""
+                    SELECT * FROM assets WHERE session_id = ? ORDER BY asset_type, value
+                """, (session_id,)).fetchall()
+            return [dict(a) for a in assets]
+    
+    def get_session_summary(self, session_id: str) -> Dict:
+        """Get session summary with counts"""
+        with sqlite3.connect(self.db_path) as conn:
+            session = self.get_session(session_id)
+            if not session:
+                return {"error": "Session not found"}
+            
+            # Count findings by severity
+            findings_counts = {}
+            for severity in ['critical', 'high', 'medium', 'low', 'info']:
+                count = conn.execute("""
+                    SELECT COUNT(*) FROM findings WHERE session_id = ? AND severity = ?
+                """, (session_id, severity)).fetchone()[0]
+                findings_counts[severity] = count
+            
+            # Count assets by type
+            asset_counts = {}
+            for row in conn.execute("""
+                SELECT asset_type, COUNT(*) FROM assets WHERE session_id = ? GROUP BY asset_type
+            """, (session_id,)):
+                asset_counts[row[0]] = row[1]
+            
+            return {
+                "session_id": session_id,
+                "target": session.get("target"),
+                "status": session.get("status"),
+                "created_at": session.get("created_at"),
+                "jobs": {
+                    "total": session.get("total_jobs", 0),
+                    "completed": session.get("completed_jobs", 0),
+                    "failed": session.get("failed_jobs", 0)
+                },
+                "findings": findings_counts,
+                "assets": asset_counts
+            }
+    
+    def complete_session(self, session_id: str):
+        """Mark session as completed"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?
+            """, (session_id,))
+            conn.commit()
+    
+    def list_sessions(self, limit: int = 20) -> List[Dict]:
+        """List recent sessions"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            sessions = conn.execute("""
+                SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(s) for s in sessions]
+    
+    def generate_session_report(self, session_id: str, format: str = "json") -> Dict:
+        """Generate comprehensive session report"""
+        session = self.get_session(session_id)
+        if not session:
+            return {"error": "Session not found"}
+        
+        summary = self.get_session_summary(session_id)
+        findings = self.get_session_findings(session_id)
+        assets = self.get_session_assets(session_id)
+        
+        report = {
+            "report_generated": datetime.now().isoformat(),
+            "session": session,
+            "summary": summary,
+            "findings": {
+                "critical": [f for f in findings if f.get("severity") == "critical"],
+                "high": [f for f in findings if f.get("severity") == "high"],
+                "medium": [f for f in findings if f.get("severity") == "medium"],
+                "low": [f for f in findings if f.get("severity") == "low"],
+                "info": [f for f in findings if f.get("severity") == "info"]
+            },
+            "assets": {}
+        }
+        
+        # Group assets by type
+        for asset in assets:
+            asset_type = asset.get("asset_type", "unknown")
+            if asset_type not in report["assets"]:
+                report["assets"][asset_type] = []
+            report["assets"][asset_type].append(asset.get("value"))
+        
+        if format == "markdown":
+            return self._generate_markdown_report(report)
+        
+        return report
+    
+    def _generate_markdown_report(self, report: Dict) -> Dict:
+        """Generate markdown format report"""
+        session = report.get("session", {})
+        summary = report.get("summary", {})
+        findings = report.get("findings", {})
+        assets = report.get("assets", {})
+        
+        md = f"""# Security Assessment Report
+**Target:** {session.get('target', 'N/A')}  
+**Session ID:** {session.get('id', 'N/A')}  
+**Generated:** {report.get('report_generated', 'N/A')}  
+**Status:** {session.get('status', 'N/A')}
+
+---
+
+## Executive Summary
+
+| Metric | Count |
+|--------|-------|
+| Total Jobs | {summary.get('jobs', {}).get('total', 0)} |
+| Completed | {summary.get('jobs', {}).get('completed', 0)} |
+| Failed | {summary.get('jobs', {}).get('failed', 0)} |
+
+### Findings by Severity
+
+| Severity | Count |
+|----------|-------|
+| 🔴 Critical | {summary.get('findings', {}).get('critical', 0)} |
+| 🟠 High | {summary.get('findings', {}).get('high', 0)} |
+| 🟡 Medium | {summary.get('findings', {}).get('medium', 0)} |
+| 🔵 Low | {summary.get('findings', {}).get('low', 0)} |
+| ⚪ Info | {summary.get('findings', {}).get('info', 0)} |
+
+### Discovered Assets
+
+| Type | Count |
+|------|-------|
+"""
+        for asset_type, values in assets.items():
+            md += f"| {asset_type} | {len(values)} |\n"
+        
+        md += "\n---\n\n"
+        
+        # Detail findings by severity
+        for severity in ['critical', 'high', 'medium', 'low']:
+            severity_findings = findings.get(severity, [])
+            if severity_findings:
+                emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵'}.get(severity, '⚪')
+                md += f"## {emoji} {severity.upper()} Findings ({len(severity_findings)})\n\n"
+                for i, finding in enumerate(severity_findings[:20], 1):  # Limit to 20
+                    md += f"### {i}. {finding.get('title', 'Unknown')}\n"
+                    md += f"**Type:** {finding.get('finding_type', 'N/A')}  \n"
+                    md += f"**Tool:** {finding.get('tool_name', 'N/A')}  \n"
+                    md += f"**Target:** {finding.get('target', 'N/A')}  \n"
+                    if finding.get('description'):
+                        md += f"**Description:** {finding.get('description')}  \n"
+                    if finding.get('evidence'):
+                        md += f"\n```\n{finding.get('evidence', '')[:500]}\n```\n"
+                    md += "\n"
+        
+        # Asset details
+        md += "---\n\n## Discovered Assets\n\n"
+        for asset_type, values in assets.items():
+            md += f"### {asset_type.replace('_', ' ').title()} ({len(values)})\n\n"
+            for value in values[:50]:  # Limit to 50 per type
+                md += f"- `{value}`\n"
+            if len(values) > 50:
+                md += f"- ... and {len(values) - 50} more\n"
+            md += "\n"
+        
+        return {"report": md, "format": "markdown"}
+
+# Global session manager
+session_manager = SessionManager()
 
 class VectorAICache:
     """Advanced caching system for command results"""
@@ -9595,19 +10243,28 @@ SCAN_PRESETS = {
         ]
     },
     "recon_full": {
-        "description": "Full reconnaissance - comprehensive subdomain, port, and technology discovery (10-15 min)",
-        "coverage": "Subdomains (multi-source), ports, services, technologies, CDN/WAF",
+        "description": "Full reconnaissance - comprehensive subdomain, port, and technology discovery (15-20 min)",
+        "coverage": "Subdomains (multi-source), ports, services, technologies, CDN/WAF, OSINT, crawling",
         "tools": [
-            # Multi-source subdomain enumeration
+            # Multi-source subdomain enumeration (expert level: 5 sources)
             {"name": "subfinder", "command": "subfinder -d {target} -all -recursive -silent", "timeout": 300},
             {"name": "amass_passive", "command": "amass enum -passive -d {target} -timeout 5 2>/dev/null | head -200", "timeout": 360},
+            {"name": "fierce", "command": "fierce --domain {target} 2>/dev/null | head -100", "timeout": 180},
+            {"name": "dnsenum", "command": "dnsenum --noreverse {target} 2>/dev/null | head -100", "timeout": 180},
             # Live host detection with full probing
             {"name": "httpx_full", "command": "echo '{target}' | httpx -silent -sc -cl -title -td -ip -cname -cdn -asn -server -hash sha256 -jarm -rt -method -websocket -probe", "timeout": 120},
             # Port scanning - top 1000 with service/version detection
             {"name": "nmap_services", "command": "nmap -sV -sC -T4 --top-ports 1000 --open -oG - {target} 2>/dev/null | grep -v '^#'", "timeout": 600},
+            {"name": "masscan", "command": "masscan {target} -p1-1000 --rate=1000 2>/dev/null | head -50", "timeout": 180},
             # Technology fingerprinting
             {"name": "whatweb", "command": "whatweb -a 3 --color=never https://{target} 2>/dev/null", "timeout": 120},
             {"name": "wafw00f", "command": "wafw00f https://{target} -a 2>/dev/null", "timeout": 90},
+            # Active crawling and URL discovery
+            {"name": "hakrawler", "command": "echo 'https://{target}' | hakrawler -d 2 -insecure 2>/dev/null | head -100", "timeout": 120},
+            {"name": "katana", "command": "katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | head -150", "timeout": 180},
+            # OSINT gathering
+            {"name": "recon-ng", "command": "echo 'marketplace install recon/domains-hosts/hackertarget\nworkspaces create temp\ndb insert domains domain={target}\nmodules load recon/domains-hosts/hackertarget\nrun\nshow hosts' | recon-ng -r - 2>/dev/null | tail -50", "timeout": 180},
+            {"name": "spiderfoot", "command": "spiderfoot -s {target} -t IP_ADDRESS,DOMAIN_NAME -q 2>/dev/null | head -100", "timeout": 300},
         ]
     },
     "recon_stealth": {
@@ -9636,17 +10293,26 @@ SCAN_PRESETS = {
         ]
     },
     "vuln_full": {
-        "description": "Full vulnerability assessment - comprehensive security testing (15-20 min)",
-        "coverage": "All severity CVEs, web vulns, misconfigs, exposed panels, default creds",
+        "description": "Full vulnerability assessment - comprehensive security testing (20-25 min)",
+        "coverage": "All severity CVEs, web vulns, misconfigs, exposed panels, default creds, OWASP Top 10",
         "tools": [
             # Full nuclei scan with all important tags
             {"name": "nuclei_all_sev", "command": "nuclei -u https://{target} -severity critical,high,medium -silent -c 50 -rl 150", "timeout": 600},
             {"name": "nuclei_cve", "command": "nuclei -u https://{target} -tags cve -silent -c 25 -rl 100", "timeout": 600},
             {"name": "nuclei_exposure", "command": "nuclei -u https://{target} -tags exposure,misconfig,default-login -silent -c 25 -rl 100", "timeout": 300},
+            {"name": "nuclei_owasp", "command": "nuclei -u https://{target} -tags owasp,owasp-top-10 -silent -c 25 -rl 100", "timeout": 300},
             # Web server analysis
             {"name": "nikto_full", "command": "nikto -h https://{target} -Tuning 123456789 -no404 2>&1 | tail -150", "timeout": 600},
+            # OWASP ZAP baseline scan
+            {"name": "zaproxy", "command": "zap-baseline.py -t https://{target} -J - 2>/dev/null | head -100", "timeout": 600},
             # Nmap vuln scripts
             {"name": "nmap_vuln", "command": "nmap -sV --script vuln,exploit --top-ports 100 {target} 2>/dev/null | tail -100", "timeout": 600},
+            # Known exploit search
+            {"name": "searchsploit", "command": "searchsploit --nmap nmap_output.xml 2>/dev/null || searchsploit {target} 2>/dev/null | head -50", "timeout": 120},
+            # Container/image vulnerability scanning
+            {"name": "trivy", "command": "trivy repo https://{target} --scanners vuln 2>/dev/null | head -80 || echo 'Trivy: Target not a repo'", "timeout": 300},
+            # SQL injection detection
+            {"name": "sqlmap_detect", "command": "sqlmap -u 'https://{target}' --batch --level=2 --risk=2 --crawl=2 --forms --random-agent 2>/dev/null | tail -60", "timeout": 480},
         ]
     },
     "vuln_kev": {
@@ -9662,26 +10328,41 @@ SCAN_PRESETS = {
     # WEB APPLICATION PRESETS
     # -------------------------------------------------------------------------
     "web_dirs": {
-        "description": "Directory and file discovery - find hidden paths and sensitive files (5-10 min)",
-        "coverage": "Common dirs, backup files, config files, admin panels",
+        "description": "Directory and file discovery - find hidden paths and sensitive files (8-12 min)",
+        "coverage": "Common dirs, backup files, config files, admin panels, API endpoints, sensitive data",
         "tools": [
-            {"name": "gobuster_common", "command": "gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,aspx,jsp,html,js,txt,bak 2>/dev/null | head -100", "timeout": 300},
-            {"name": "feroxbuster", "command": "feroxbuster -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,html,txt --no-state 2>/dev/null | head -100", "timeout": 300},
+            # Gobuster - fast directory brute-forcing
+            {"name": "gobuster_common", "command": "gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,aspx,jsp,html,js,txt,bak,old,conf,config,xml,json 2>/dev/null | head -100", "timeout": 300},
+            # Feroxbuster - recursive content discovery
+            {"name": "feroxbuster", "command": "feroxbuster -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,html,txt,bak,json --no-state 2>/dev/null | head -100", "timeout": 300},
+            # FFuF - flexible fuzzer
+            {"name": "ffuf", "command": "ffuf -u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,201,204,301,302,307,401,403,405 -s -t 40 2>/dev/null | head -80", "timeout": 300},
+            # Dirb - classic directory scanner
+            {"name": "dirb", "command": "dirb https://{target} /usr/share/wordlists/dirb/common.txt -S -r 2>/dev/null | grep -E '^\\+|CODE' | head -80", "timeout": 300},
+            # Dirsearch - advanced web path scanner
+            {"name": "dirsearch", "command": "dirsearch -u https://{target} -e php,asp,aspx,jsp,html,js,txt,bak -t 30 --format plain --quiet 2>/dev/null | head -80", "timeout": 300},
             # Nuclei for exposed files/panels
-            {"name": "nuclei_exposure", "command": "nuclei -u https://{target} -tags exposure,backup,config -silent -c 25", "timeout": 180},
+            {"name": "nuclei_exposure", "command": "nuclei -u https://{target} -tags exposure,backup,config,admin -silent -c 25", "timeout": 180},
+            {"name": "nuclei_files", "command": "nuclei -u https://{target} -tags files,logs,git -silent -c 25", "timeout": 180},
         ]
     },
     "web_params": {
-        "description": "Parameter and endpoint discovery - find API endpoints and parameters (5-8 min)",
-        "coverage": "URLs from crawling, archives, JS parsing, API endpoints",
+        "description": "Parameter and endpoint discovery - find API endpoints and parameters (8-12 min)",
+        "coverage": "URLs from crawling, archives, JS parsing, API endpoints, hidden parameters, query strings",
         "tools": [
             # Active crawling
             {"name": "katana", "command": "katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | head -200", "timeout": 240},
+            {"name": "hakrawler", "command": "echo 'https://{target}' | hakrawler -d 3 -insecure -subs 2>/dev/null | head -150", "timeout": 180},
             # Passive sources - archives and databases
             {"name": "gau", "command": "gau --subs {target} --blacklist ttf,woff,svg,png,jpg,gif,ico,css 2>/dev/null | head -200", "timeout": 180},
             {"name": "waybackurls", "command": "waybackurls {target} 2>/dev/null | head -200", "timeout": 120},
-            # Find interesting params
+            # Hidden parameter discovery
+            {"name": "arjun", "command": "arjun -u https://{target} -t 10 --stable 2>/dev/null | head -50", "timeout": 300},
+            # URL deduplication and parameter extraction
             {"name": "grep_params", "command": "gau {target} 2>/dev/null | grep -E '\\?|=' | head -100", "timeout": 120},
+            {"name": "qsreplace_test", "command": "gau {target} 2>/dev/null | grep '=' | qsreplace FUZZ 2>/dev/null | head -50", "timeout": 120},
+            # Nuclei for interesting endpoints
+            {"name": "nuclei_api", "command": "nuclei -u https://{target} -tags api,graphql,swagger -silent -c 25", "timeout": 180},
         ]
     },
     "web_xss": {
@@ -9716,14 +10397,29 @@ SCAN_PRESETS = {
         ]
     },
     "osint_deep": {
-        "description": "Deep OSINT - extended information gathering (10-15 min)",
-        "coverage": "All OSINT sources, DNS zone transfer attempts, reverse lookups",
+        "description": "Deep OSINT - extended information gathering like a senior expert (15-20 min)",
+        "coverage": "All OSINT sources, DNS zone transfer, reverse lookups, social media, employee data, metadata",
         "tools": [
+            # theHarvester - comprehensive email/host/name harvesting
             {"name": "theHarvester_all", "command": "theHarvester -d {target} -b all -l 200 2>&1 | tail -150", "timeout": 600},
+            # Amass - advanced DNS enumeration and intel
             {"name": "amass_intel", "command": "amass intel -d {target} -timeout 5 2>/dev/null | head -100", "timeout": 360},
+            {"name": "amass_enum", "command": "amass enum -passive -d {target} -timeout 5 2>/dev/null | head -150", "timeout": 360},
+            # DNS reconnaissance
             {"name": "dnsrecon_full", "command": "dnsrecon -d {target} -t std,brt,axfr 2>/dev/null | head -100", "timeout": 300},
+            {"name": "dnsenum", "command": "dnsenum --noreverse {target} 2>/dev/null | head -80", "timeout": 180},
+            {"name": "fierce", "command": "fierce --domain {target} 2>/dev/null | head -80", "timeout": 180},
+            # Recon-ng framework
+            {"name": "recon-ng", "command": "echo 'workspaces create temp\ndb insert domains domain={target}\nmodules load recon/domains-hosts/hackertarget\nrun\nshow hosts' | recon-ng -r - 2>/dev/null | tail -50", "timeout": 180},
+            # SpiderFoot - automated OSINT
+            {"name": "spiderfoot", "command": "spiderfoot -s {target} -t IP_ADDRESS,DOMAIN_NAME,EMAILADDR,HUMAN_NAME -q 2>/dev/null | head -100", "timeout": 360},
+            # Sherlock - social media username search (if target is username)
+            {"name": "sherlock", "command": "sherlock {target} --print-found 2>/dev/null | head -50 || echo 'Sherlock: Use with usernames'", "timeout": 180},
+            # WHOIS and DNS basics
             {"name": "whois", "command": "whois {target} 2>/dev/null", "timeout": 45},
-            {"name": "nmap_dns", "command": "nmap --script dns-brute,dns-zone-transfer -p 53 {target} 2>/dev/null", "timeout": 300},
+            {"name": "nmap_dns", "command": "nmap --script dns-brute,dns-zone-transfer -p 53 {target} 2>/dev/null | head -80", "timeout": 300},
+            # Certificate transparency
+            {"name": "curl_crtsh", "command": "curl -s 'https://crt.sh/?q=%25.{target}&output=json' 2>/dev/null | jq -r '.[].name_value' 2>/dev/null | sort -u | head -100", "timeout": 120},
         ]
     },
     
@@ -9789,17 +10485,29 @@ SCAN_PRESETS = {
         ]
     },
     "network_scan": {
-        "description": "Network infrastructure scan - ports, services, network vulns",
-        "coverage": "All 65535 ports (top 1000 fast), service versions, network vulns",
+        "description": "Network infrastructure scan - comprehensive port/service/vuln discovery (15-20 min)",
+        "coverage": "All 65535 ports, service versions, network vulns, SNMP, NetBIOS, ARP discovery",
         "tools": [
             # Fast top ports with service detection
             {"name": "nmap_fast", "command": "nmap -sV -sC -T4 --top-ports 1000 --open {target} 2>/dev/null | tail -100", "timeout": 600},
-            # Full port scan (slower)
+            # Masscan - ultra-fast port scanning
+            {"name": "masscan", "command": "masscan {target} -p1-65535 --rate=1000 2>/dev/null | head -100", "timeout": 600},
+            # Full port scan (slower but complete)
             {"name": "nmap_full", "command": "nmap -p- -T4 --open {target} 2>/dev/null | grep -E '^[0-9]+'", "timeout": 900},
             # UDP top ports
-            {"name": "nmap_udp", "command": "nmap -sU -T4 --top-ports 50 --open {target} 2>/dev/null | grep -E '^[0-9]+'", "timeout": 300},
+            {"name": "nmap_udp", "command": "nmap -sU -T4 --top-ports 100 --open {target} 2>/dev/null | grep -E '^[0-9]+'", "timeout": 400},
+            # ARP scan for local network discovery
+            {"name": "arp-scan", "command": "arp-scan -l 2>/dev/null | head -50 || echo 'arp-scan: Requires local network'", "timeout": 60},
+            # NBTScan - NetBIOS scanning
+            {"name": "nbtscan", "command": "nbtscan {target}/24 2>/dev/null | head -50 || nbtscan {target} 2>/dev/null", "timeout": 120},
             # Vuln scripts
-            {"name": "nmap_vuln", "command": "nmap -sV --script vuln --top-ports 100 {target} 2>/dev/null | tail -80", "timeout": 600},
+            {"name": "nmap_vuln", "command": "nmap -sV --script vuln,exploit --top-ports 100 {target} 2>/dev/null | tail -100", "timeout": 600},
+            # Network service enumeration
+            {"name": "nmap_services", "command": "nmap --script banner,version -sV --top-ports 200 {target} 2>/dev/null | tail -80", "timeout": 300},
+            # SNMP enumeration
+            {"name": "nmap_snmp", "command": "nmap -sU -p 161,162 --script snmp-info,snmp-interfaces,snmp-processes {target} 2>/dev/null | tail -50", "timeout": 180},
+            # Packet capture (brief)
+            {"name": "tcpdump", "command": "timeout 10 tcpdump -i any -c 100 host {target} -nn 2>/dev/null | tail -50 || echo 'tcpdump: Requires privileges'", "timeout": 15},
         ]
     },
     "cve_2024": {
@@ -9808,6 +10516,143 @@ SCAN_PRESETS = {
         "tools": [
             {"name": "nuclei_2024", "command": "nuclei -u https://{target} -tags cve2024 -silent -c 25 -rl 100", "timeout": 300},
             {"name": "nuclei_2023", "command": "nuclei -u https://{target} -tags cve2023 -silent -c 25 -rl 100", "timeout": 300},
+        ]
+    },
+    
+    # -------------------------------------------------------------------------
+    # EXPERT-LEVEL SPECIALIZED PRESETS (Senior Bug Bounty Hunter)
+    # -------------------------------------------------------------------------
+    "content_discovery": {
+        "description": "Deep content discovery - find every hidden file, directory, and endpoint (10-15 min)",
+        "coverage": "Hidden files, backups, configs, source code, git repos, API docs, admin panels",
+        "tools": [
+            # Multi-fuzzer approach for maximum coverage
+            {"name": "gobuster", "command": "gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 40 -x php,asp,aspx,jsp,html,js,txt,bak,old,conf,xml,json,sql,log,zip,tar,gz 2>/dev/null | head -100", "timeout": 360},
+            {"name": "feroxbuster", "command": "feroxbuster -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 40 -x php,asp,html,txt,bak,json,xml -d 3 --no-state 2>/dev/null | head -100", "timeout": 360},
+            {"name": "ffuf", "command": "ffuf -u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,201,204,301,302,307,401,403,405,500 -s -t 50 2>/dev/null | head -100", "timeout": 300},
+            {"name": "dirb", "command": "dirb https://{target} /usr/share/wordlists/dirb/common.txt -S -r 2>/dev/null | grep -E '^\\+|CODE' | head -80", "timeout": 300},
+            {"name": "dirsearch", "command": "dirsearch -u https://{target} -e php,asp,aspx,jsp,html,js,txt,bak,sql,xml,json -t 40 --format plain --quiet 2>/dev/null | head -80", "timeout": 300},
+            # Git/SVN exposure
+            {"name": "nuclei_git", "command": "nuclei -u https://{target} -tags git,svn,hg,exposure -silent -c 25", "timeout": 180},
+            # Backup/config files
+            {"name": "nuclei_backup", "command": "nuclei -u https://{target} -tags backup,config,database -silent -c 25", "timeout": 180},
+            # Sensitive data exposure
+            {"name": "nuclei_sensitive", "command": "nuclei -u https://{target} -tags token,secret,password,credential -silent -c 25", "timeout": 180},
+            # Archive crawling for historical endpoints
+            {"name": "waybackurls", "command": "waybackurls {target} 2>/dev/null | grep -E '\\.(php|asp|aspx|jsp|js|json|xml|txt|sql|bak|old|conf|config|env|log)' | head -100", "timeout": 120},
+            {"name": "gau_files", "command": "gau {target} 2>/dev/null | grep -E '\\.(php|asp|aspx|jsp|js|json|xml|txt|bak|sql|conf|env|log|zip|tar|gz)' | head -100", "timeout": 120},
+        ]
+    },
+    "auth_testing": {
+        "description": "Authentication testing - brute force, default creds, auth bypass (10-15 min)",
+        "coverage": "Default credentials, weak passwords, login bypass, auth misconfiguration",
+        "tools": [
+            # Nuclei auth-related templates
+            {"name": "nuclei_default_login", "command": "nuclei -u https://{target} -tags default-login -silent -c 50 -rl 150", "timeout": 300},
+            {"name": "nuclei_auth", "command": "nuclei -u https://{target} -tags auth-bypass,authentication -silent -c 25", "timeout": 180},
+            {"name": "nuclei_creds", "command": "nuclei -u https://{target} -tags weak-credentials,default-credentials -silent -c 25", "timeout": 180},
+            # Hydra - network login cracker (common services)
+            {"name": "hydra_ssh", "command": "hydra -L /usr/share/wordlists/metasploit/unix_users.txt -P /usr/share/wordlists/metasploit/unix_passwords.txt -t 4 -vV {target} ssh 2>/dev/null | tail -30 || echo 'SSH not open'", "timeout": 300},
+            {"name": "hydra_ftp", "command": "hydra -L /usr/share/wordlists/metasploit/unix_users.txt -P /usr/share/wordlists/metasploit/unix_passwords.txt -t 4 -vV {target} ftp 2>/dev/null | tail -30 || echo 'FTP not open'", "timeout": 300},
+            # Medusa - parallel password testing
+            {"name": "medusa_ssh", "command": "medusa -h {target} -U /usr/share/wordlists/metasploit/unix_users.txt -P /usr/share/wordlists/metasploit/unix_passwords.txt -M ssh -t 4 2>/dev/null | tail -30 || echo 'SSH test skipped'", "timeout": 300},
+            # Patator - multi-purpose brute-forcer
+            {"name": "patator_http", "command": "patator http_fuzz url='https://{target}/login' method=POST body='user=FILE0&pass=FILE1' 0=/usr/share/wordlists/metasploit/unix_users.txt 1=/usr/share/wordlists/metasploit/unix_passwords.txt -x ignore:code=401 2>/dev/null | head -30 || echo 'HTTP auth test'", "timeout": 300},
+            # Nmap auth scripts
+            {"name": "nmap_auth", "command": "nmap --script auth,brute --top-ports 20 {target} 2>/dev/null | tail -60", "timeout": 300},
+            # Default credential check
+            {"name": "nmap_default_creds", "command": "nmap --script http-default-accounts,ftp-anon,ssh-auth-methods -p 21,22,80,443,8080 {target} 2>/dev/null | tail -50", "timeout": 180},
+        ]
+    },
+    "smb_enum": {
+        "description": "SMB/Windows enumeration - shares, users, policies, AD info (8-12 min)",
+        "coverage": "SMB shares, users, groups, policies, null sessions, AD enumeration",
+        "tools": [
+            # SMBMap - enumerate shares and permissions
+            {"name": "smbmap", "command": "smbmap -H {target} 2>/dev/null || smbmap -H {target} -u '' -p '' 2>/dev/null", "timeout": 120},
+            {"name": "smbmap_shares", "command": "smbmap -H {target} -r 2>/dev/null | head -50", "timeout": 120},
+            # Enum4linux-ng - comprehensive Windows/Samba enumeration
+            {"name": "enum4linux-ng", "command": "enum4linux-ng -A {target} 2>/dev/null | head -150", "timeout": 300},
+            # NetExec (nxc) - modern replacement for CrackMapExec
+            {"name": "nxc_smb", "command": "nxc smb {target} 2>/dev/null | head -30", "timeout": 120},
+            {"name": "nxc_smb_shares", "command": "nxc smb {target} --shares 2>/dev/null | head -30", "timeout": 120},
+            {"name": "nxc_smb_users", "command": "nxc smb {target} --users 2>/dev/null | head -50", "timeout": 120},
+            # RPC client - Windows RPC enumeration
+            {"name": "rpcclient", "command": "rpcclient -U '' -N {target} -c 'enumdomusers; enumdomgroups; querydominfo' 2>/dev/null | head -50", "timeout": 120},
+            # NBTScan - NetBIOS name scanning
+            {"name": "nbtscan", "command": "nbtscan {target} 2>/dev/null", "timeout": 60},
+            # Nmap SMB scripts
+            {"name": "nmap_smb", "command": "nmap --script smb-enum-shares,smb-enum-users,smb-os-discovery,smb-protocols,smb-security-mode,smb-vuln* -p 139,445 {target} 2>/dev/null | tail -100", "timeout": 300},
+            # Responder (passive - just show what it would capture)
+            {"name": "responder_analyze", "command": "responder --analyze -I eth0 2>/dev/null | head -20 || echo 'Responder: Run manually for active capture'", "timeout": 30},
+        ]
+    },
+    "container_security": {
+        "description": "Container and cloud security - Docker, K8s, cloud misconfigs (10-15 min)",
+        "coverage": "Container vulnerabilities, K8s misconfigs, cloud IAM, IaC security",
+        "tools": [
+            # Trivy - comprehensive vulnerability scanner
+            {"name": "trivy_image", "command": "trivy image {target} --scanners vuln 2>/dev/null | head -100 || echo 'Trivy: Provide image name'", "timeout": 300},
+            {"name": "trivy_fs", "command": "trivy fs . --scanners vuln,secret,misconfig 2>/dev/null | head -80 || echo 'Trivy: Run in project directory'", "timeout": 300},
+            # Kube-bench - Kubernetes CIS benchmark
+            {"name": "kube-bench", "command": "kube-bench run --json 2>/dev/null | jq '.Controls[].tests[].results[] | select(.status != \"PASS\")' 2>/dev/null | head -100 || echo 'kube-bench: Requires K8s cluster access'", "timeout": 300},
+            # Prowler - AWS/Azure/GCP security assessments
+            {"name": "prowler_aws", "command": "prowler aws --list-checks-json 2>/dev/null | head -50 || echo 'Prowler: Requires cloud credentials'", "timeout": 180},
+            # Checkov - IaC security scanner
+            {"name": "checkov_docker", "command": "checkov -f Dockerfile 2>/dev/null | head -80 || echo 'Checkov: Provide Dockerfile path'", "timeout": 180},
+            {"name": "checkov_terraform", "command": "checkov -d . --framework terraform 2>/dev/null | head -80 || echo 'Checkov: Run in IaC directory'", "timeout": 180},
+            # Nuclei cloud/container templates
+            {"name": "nuclei_cloud", "command": "nuclei -u https://{target} -tags cloud,aws,azure,gcp,kubernetes,docker -silent -c 25", "timeout": 300},
+            {"name": "nuclei_takeover", "command": "nuclei -u https://{target} -tags takeover,subdomain-takeover -silent -c 25", "timeout": 180},
+            # Cloud metadata checks
+            {"name": "curl_aws_meta", "command": "curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/ 2>/dev/null | head -20 || echo 'AWS metadata: Not accessible'", "timeout": 10},
+            {"name": "curl_azure_meta", "command": "curl -s --connect-timeout 2 -H 'Metadata:true' 'http://169.254.169.254/metadata/instance?api-version=2021-02-01' 2>/dev/null | head -20 || echo 'Azure metadata: Not accessible'", "timeout": 10},
+        ]
+    },
+    "exploit_research": {
+        "description": "Exploit research and development - find known exploits (5-10 min)",
+        "coverage": "ExploitDB search, Metasploit modules, payload generation",
+        "tools": [
+            # SearchSploit - Exploit-DB local search
+            {"name": "searchsploit_target", "command": "searchsploit {target} 2>/dev/null | head -50", "timeout": 60},
+            {"name": "searchsploit_web", "command": "searchsploit apache nginx iis tomcat 2>/dev/null | head -50", "timeout": 60},
+            {"name": "searchsploit_cms", "command": "searchsploit wordpress joomla drupal 2>/dev/null | head -40", "timeout": 60},
+            # Metasploit search for modules
+            {"name": "msfconsole_search", "command": "msfconsole -q -x 'search {target}; exit' 2>/dev/null | tail -50 || echo 'MSF: Run search manually'", "timeout": 120},
+            {"name": "msfconsole_vulns", "command": "msfconsole -q -x 'search type:exploit platform:linux; exit' 2>/dev/null | head -30 || echo 'MSF: Exploit search'", "timeout": 120},
+            # Nuclei for known exploits
+            {"name": "nuclei_rce", "command": "nuclei -u https://{target} -tags rce -silent -c 25", "timeout": 180},
+            {"name": "nuclei_lfi", "command": "nuclei -u https://{target} -tags lfi,rfi -silent -c 25", "timeout": 180},
+            {"name": "nuclei_ssrf", "command": "nuclei -u https://{target} -tags ssrf -silent -c 25", "timeout": 180},
+            # Nmap exploit scripts
+            {"name": "nmap_exploit", "command": "nmap --script exploit --top-ports 50 {target} 2>/dev/null | tail -60", "timeout": 300},
+        ]
+    },
+    "forensics_analysis": {
+        "description": "Digital forensics and file analysis (5-10 min)",
+        "coverage": "File metadata, embedded data, hidden files, memory artifacts, steganography",
+        "tools": [
+            # Binwalk - firmware/file analysis
+            {"name": "binwalk", "command": "binwalk {target} 2>/dev/null | head -50 || echo 'binwalk: Provide file path'", "timeout": 120},
+            {"name": "binwalk_extract", "command": "binwalk -e {target} 2>/dev/null | head -30 || echo 'binwalk: Extract embedded files'", "timeout": 180},
+            # Exiftool - metadata extraction
+            {"name": "exiftool", "command": "exiftool {target} 2>/dev/null | head -80 || echo 'exiftool: Provide file path'", "timeout": 60},
+            # Foremost - file carving
+            {"name": "foremost", "command": "foremost -t all -i {target} -o /tmp/foremost_out 2>/dev/null && ls /tmp/foremost_out 2>/dev/null || echo 'foremost: Provide image file'", "timeout": 180},
+            # Strings - extract readable strings
+            {"name": "strings", "command": "strings {target} 2>/dev/null | head -100 || echo 'strings: Provide binary file'", "timeout": 60},
+            {"name": "strings_long", "command": "strings -n 10 {target} 2>/dev/null | grep -E '(password|secret|key|token|api|admin|root|user)' | head -50 || echo 'strings: Search sensitive data'", "timeout": 60},
+            # File type identification
+            {"name": "file", "command": "file {target} 2>/dev/null || echo 'file: Provide file path'", "timeout": 30},
+            # Steganography detection
+            {"name": "steghide", "command": "steghide info {target} 2>/dev/null || echo 'steghide: Provide image file'", "timeout": 60},
+            # Memory forensics with Volatility
+            {"name": "vol", "command": "vol -f {target} imageinfo 2>/dev/null | head -30 || echo 'Volatility: Provide memory dump'", "timeout": 120},
+            {"name": "vol_pslist", "command": "vol -f {target} --profile=Win10x64 pslist 2>/dev/null | head -50 || echo 'Volatility: Process list'", "timeout": 120},
+            # PhotoRec - file recovery
+            {"name": "photorec", "command": "echo 'photorec: Interactive tool - run manually with: photorec {target}'", "timeout": 5},
+            # TestDisk - partition recovery
+            {"name": "testdisk", "command": "echo 'testdisk: Interactive tool - run manually with: testdisk {target}'", "timeout": 5},
         ]
     },
 }
@@ -9829,10 +10674,12 @@ def list_presets():
         "categories": {
             "reconnaissance": ["recon_quick", "recon_full", "recon_stealth"],
             "vulnerability": ["vuln_quick", "vuln_full", "vuln_kev", "cve_2024"],
-            "web_application": ["web_dirs", "web_params", "web_xss", "web_sqli"],
+            "web_application": ["web_dirs", "web_params", "web_xss", "web_sqli", "content_discovery"],
             "osint": ["osint", "osint_deep"],
-            "infrastructure": ["waf_detect", "ssl_check", "network_scan"],
-            "specialized": ["api_security", "cloud_security", "wordpress"]
+            "infrastructure": ["waf_detect", "ssl_check", "network_scan", "smb_enum"],
+            "specialized": ["api_security", "cloud_security", "wordpress", "container_security"],
+            "offensive": ["auth_testing", "exploit_research"],
+            "forensics": ["forensics_analysis"]
         }
     })
 
@@ -9888,6 +10735,55 @@ def run_preset_scan(preset: str):
         return jsonify({"error": str(e)}), 500
 
 # ============================================================================
+# WORKFLOW SESSION INTEGRATION (v6.3)
+# ============================================================================
+
+def create_workflow_with_session(target: str, workflow_name: str, commands: List[Dict]) -> Dict:
+    """
+    Create a session and submit all workflow jobs with proper tracking.
+    
+    Args:
+        target: Target domain/IP
+        workflow_name: Name of the workflow
+        commands: List of dicts with 'tool' and 'cmd' keys
+    
+    Returns:
+        Workflow response dict with session info
+    """
+    # Create session for this workflow
+    session_id = session_manager.create_session(target, workflow_name)
+    
+    jobs = []
+    for item in commands:
+        tool_name = item.get("tool", "unknown")
+        cmd = item.get("cmd", "")
+        timeout = item.get("timeout", 300)
+        
+        # Create job through job_manager
+        job_id = job_manager.create_job(cmd, timeout=timeout)
+        
+        # Register with session manager
+        session_manager.add_job(session_id, job_id, tool_name, cmd)
+        
+        jobs.append({
+            "tool": tool_name,
+            "job_id": job_id
+        })
+    
+    return {
+        "session_id": session_id,
+        "jobs": jobs,
+        "total_jobs": len(jobs),
+        "session_endpoints": {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report",
+            "files": f"/api/session/{session_id}/files"
+        }
+    }
+
+# ============================================================================
 # SCAN WORKFLOWS (v6.2 - Automated Multi-Stage Pipelines)
 # Research-backed comprehensive security assessment workflows
 # ============================================================================
@@ -9904,7 +10800,7 @@ def workflow_full_recon():
     5. URL/endpoint discovery (katana, gau, waybackurls)
     6. OSINT gathering (theHarvester, DNS enumeration)
     
-    Returns all job IDs organized by stage (~15-20 min total)
+    Returns all job IDs organized by stage with session tracking (~15-20 min total)
     """
     try:
         params = request.json
@@ -9915,12 +10811,21 @@ def workflow_full_recon():
         
         target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
         
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "full-recon")
+        
         workflow = {
             "workflow_name": "full-recon",
             "target": target,
+            "session_id": session_id,
             "estimated_time": "15-20 minutes",
             "stages": {}
         }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
         
         # Stage 1: Subdomain Discovery (multi-source)
         stage1_jobs = []
@@ -9928,21 +10833,21 @@ def workflow_full_recon():
             (f"subfinder -d {target} -all -recursive -silent", "subfinder"),
             (f"amass enum -passive -d {target} -timeout 5 2>/dev/null | head -200", "amass"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=360)
+            job_id = add_job(cmd, name, timeout=360)
             stage1_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["1_subdomain_discovery"] = stage1_jobs
         
         # Stage 2: Live Host Detection + Tech Stack
         stage2_jobs = []
         cmd = f"echo '{target}' | httpx -silent -sc -cl -title -td -ip -cname -cdn -asn -server -hash sha256 -jarm -rt -method -websocket -probe"
-        job_id = job_manager.create_job(cmd, timeout=180)
+        job_id = add_job(cmd, "httpx_full", timeout=180)
         stage2_jobs.append({"tool": "httpx_full", "job_id": job_id})
         workflow["stages"]["2_live_host_tech_stack"] = stage2_jobs
         
         # Stage 3: Port Scanning + Service Detection
         stage3_jobs = []
         cmd = f"nmap -sV -sC -T4 --top-ports 1000 --open -oG - {target} 2>/dev/null | grep -v '^#'"
-        job_id = job_manager.create_job(cmd, timeout=600)
+        job_id = add_job(cmd, "nmap_services", timeout=600)
         stage3_jobs.append({"tool": "nmap_services", "job_id": job_id})
         workflow["stages"]["3_port_service_scan"] = stage3_jobs
         
@@ -9952,7 +10857,7 @@ def workflow_full_recon():
             (f"wafw00f https://{target} -a 2>/dev/null", "wafw00f"),
             (f"whatweb -a 3 --color=never https://{target} 2>/dev/null", "whatweb"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=120)
+            job_id = add_job(cmd, name, timeout=120)
             stage4_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["4_waf_cdn_detection"] = stage4_jobs
         
@@ -9963,7 +10868,7 @@ def workflow_full_recon():
             (f"gau --subs {target} --blacklist ttf,woff,svg,png,jpg,gif,ico,css 2>/dev/null | head -200", "gau"),
             (f"waybackurls {target} 2>/dev/null | head -200", "waybackurls"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=240)
+            job_id = add_job(cmd, name, timeout=240)
             stage5_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["5_url_endpoint_discovery"] = stage5_jobs
         
@@ -9974,7 +10879,7 @@ def workflow_full_recon():
             (f"dig {target} A AAAA MX NS TXT SOA +short 2>/dev/null", "dig_records"),
             (f"whois {target} 2>/dev/null", "whois"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=180)
+            job_id = add_job(cmd, name, timeout=180)
             stage6_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["6_osint_gathering"] = stage6_jobs
         
@@ -9985,7 +10890,14 @@ def workflow_full_recon():
         
         workflow["total_jobs"] = len(all_jobs)
         workflow["all_job_ids"] = all_jobs
-        workflow["message"] = "Full recon workflow started. Use /api/batch/status with all_job_ids to track progress."
+        workflow["message"] = "Full recon workflow started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
         
         return jsonify(workflow), 202
         
@@ -10005,7 +10917,7 @@ def workflow_vuln_assessment():
     5. Full nuclei scan (all severities + misconfigs + exposures)
     6. Nmap vulnerability scripts
     
-    Returns all job IDs organized by stage (~20-25 min total)
+    Returns all job IDs organized by stage with session tracking (~20-25 min total)
     """
     try:
         params = request.json
@@ -10016,12 +10928,21 @@ def workflow_vuln_assessment():
         
         target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
         
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "vuln-assessment")
+        
         workflow = {
             "workflow_name": "vuln-assessment",
             "target": target,
+            "session_id": session_id,
             "estimated_time": "20-25 minutes",
             "stages": {}
         }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
         
         # Stage 1: Known Exploited Vulnerabilities (Most Critical!)
         stage1_jobs = []
@@ -10029,21 +10950,21 @@ def workflow_vuln_assessment():
             (f"nuclei -u https://{target} -tags kev -silent -c 50 -rl 150", "nuclei_cisa_kev"),
             (f"nuclei -u https://{target} -tags vkev -silent -c 50 -rl 150", "nuclei_vulncheck_kev"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=600)
+            job_id = add_job(cmd, name, timeout=600)
             stage1_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["1_known_exploited_vulns"] = stage1_jobs
         
         # Stage 2: Critical/High CVE Scan
         stage2_jobs = []
         cmd = f"nuclei -u https://{target} -severity critical,high -silent -c 50 -rl 150"
-        job_id = job_manager.create_job(cmd, timeout=600)
+        job_id = add_job(cmd, "nuclei_critical_high", timeout=600)
         stage2_jobs.append({"tool": "nuclei_critical_high", "job_id": job_id})
         workflow["stages"]["2_critical_high_cves"] = stage2_jobs
         
         # Stage 3: Web Server Analysis
         stage3_jobs = []
         cmd = f"nikto -h https://{target} -Tuning 1234567890 -no404 2>&1 | tail -150"
-        job_id = job_manager.create_job(cmd, timeout=600)
+        job_id = add_job(cmd, "nikto_comprehensive", timeout=600)
         stage3_jobs.append({"tool": "nikto_comprehensive", "job_id": job_id})
         workflow["stages"]["3_web_server_analysis"] = stage3_jobs
         
@@ -10053,7 +10974,7 @@ def workflow_vuln_assessment():
             (f"gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,aspx,jsp,html,js,txt,bak 2>/dev/null | head -100", "gobuster"),
             (f"feroxbuster -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 30 -x php,asp,html,txt --no-state 2>/dev/null | head -100", "feroxbuster"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=360)
+            job_id = add_job(cmd, name, timeout=360)
             stage4_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["4_directory_file_discovery"] = stage4_jobs
         
@@ -10064,14 +10985,14 @@ def workflow_vuln_assessment():
             (f"nuclei -u https://{target} -tags exposure,misconfig,default-login -silent -c 25 -rl 100", "nuclei_misconfigs"),
             (f"nuclei -u https://{target} -tags cve -silent -c 25 -rl 100", "nuclei_all_cve"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=600)
+            job_id = add_job(cmd, name, timeout=600)
             stage5_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["5_full_nuclei_scan"] = stage5_jobs
         
         # Stage 6: Nmap Vulnerability Scripts
         stage6_jobs = []
         cmd = f"nmap -sV --script vuln,exploit --top-ports 100 {target} 2>/dev/null | tail -100"
-        job_id = job_manager.create_job(cmd, timeout=600)
+        job_id = add_job(cmd, "nmap_vuln_scripts", timeout=600)
         stage6_jobs.append({"tool": "nmap_vuln_scripts", "job_id": job_id})
         workflow["stages"]["6_nmap_vuln_scripts"] = stage6_jobs
         
@@ -10082,7 +11003,14 @@ def workflow_vuln_assessment():
         
         workflow["total_jobs"] = len(all_jobs)
         workflow["all_job_ids"] = all_jobs
-        workflow["message"] = "Vulnerability assessment started. Use /api/batch/status to track."
+        workflow["message"] = "Vulnerability assessment started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
         
         return jsonify(workflow), 202
         
@@ -10106,7 +11034,7 @@ def workflow_complete_pentest():
     7. Web application testing
     8. OSINT gathering
     
-    Returns all job IDs organized by stage (~30-40 min total)
+    Returns all job IDs organized by stage with session tracking (~30-40 min total)
     """
     try:
         params = request.json
@@ -10117,12 +11045,21 @@ def workflow_complete_pentest():
         
         target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
         
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "complete-pentest")
+        
         workflow = {
             "workflow_name": "complete-pentest",
             "target": target,
+            "session_id": session_id,
             "estimated_time": "30-40 minutes",
             "stages": {}
         }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
         
         # Stage 1: Subdomain Enumeration
         stage1_jobs = []
@@ -10130,14 +11067,14 @@ def workflow_complete_pentest():
             (f"subfinder -d {target} -all -recursive -silent", "subfinder"),
             (f"amass enum -passive -d {target} -timeout 5 2>/dev/null | head -200", "amass"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=360)
+            job_id = add_job(cmd, name, timeout=360)
             stage1_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["1_subdomain_enum"] = stage1_jobs
         
         # Stage 2: Live Host + Tech Stack
         stage2_jobs = []
         cmd = f"echo '{target}' | httpx -silent -sc -cl -title -td -ip -cname -cdn -asn -server -hash sha256 -jarm -rt"
-        job_id = job_manager.create_job(cmd, timeout=180)
+        job_id = add_job(cmd, "httpx_comprehensive", timeout=180)
         stage2_jobs.append({"tool": "httpx_comprehensive", "job_id": job_id})
         workflow["stages"]["2_live_host_tech"] = stage2_jobs
         
@@ -10147,7 +11084,7 @@ def workflow_complete_pentest():
             (f"nmap -sV -sC -T4 --top-ports 1000 --open -oG - {target} 2>/dev/null | grep -v '^#'", "nmap_tcp"),
             (f"nmap -sU -T4 --top-ports 50 --open {target} 2>/dev/null | grep -E '^[0-9]+'", "nmap_udp"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=600)
+            job_id = add_job(cmd, name, timeout=600)
             stage3_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["3_port_service_scan"] = stage3_jobs
         
@@ -10158,7 +11095,7 @@ def workflow_complete_pentest():
             (f"whatweb -a 3 --color=never https://{target} 2>/dev/null", "whatweb"),
             (f"curl -sI https://{target} 2>/dev/null | grep -iE '(x-frame|x-xss|x-content|strict-transport|content-security|referrer-policy)'", "security_headers"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=120)
+            job_id = add_job(cmd, name, timeout=120)
             stage4_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["4_waf_security_detection"] = stage4_jobs
         
@@ -10168,7 +11105,7 @@ def workflow_complete_pentest():
             (f"nuclei -u https://{target} -tags kev,vkev -silent -c 50 -rl 150", "nuclei_kev"),
             (f"nuclei -u https://{target} -severity critical,high -silent -c 50 -rl 150", "nuclei_critical"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=600)
+            job_id = add_job(cmd, name, timeout=600)
             stage5_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["5_kev_critical_vulns"] = stage5_jobs
         
@@ -10179,7 +11116,7 @@ def workflow_complete_pentest():
             (f"nuclei -u https://{target} -tags exposure,misconfig,default-login -silent -c 25", "nuclei_misconfig"),
             (f"nikto -h https://{target} -Tuning 1234567890 -no404 2>&1 | tail -100", "nikto"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=600)
+            job_id = add_job(cmd, name, timeout=600)
             stage6_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["6_full_vuln_scan"] = stage6_jobs
         
@@ -10190,7 +11127,7 @@ def workflow_complete_pentest():
             (f"katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | head -150", "katana"),
             (f"gau --subs {target} 2>/dev/null | head -150", "gau"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=360)
+            job_id = add_job(cmd, name, timeout=360)
             stage7_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["7_web_app_testing"] = stage7_jobs
         
@@ -10201,7 +11138,7 @@ def workflow_complete_pentest():
             (f"whois {target} 2>/dev/null", "whois"),
             (f"dig {target} A AAAA MX NS TXT SOA +short 2>/dev/null", "dig"),
         ]:
-            job_id = job_manager.create_job(cmd, timeout=180)
+            job_id = add_job(cmd, name, timeout=180)
             stage8_jobs.append({"tool": name, "job_id": job_id})
         workflow["stages"]["8_osint"] = stage8_jobs
         
@@ -10212,12 +11149,961 @@ def workflow_complete_pentest():
         
         workflow["total_jobs"] = len(all_jobs)
         workflow["all_job_ids"] = all_jobs
-        workflow["message"] = "Complete pentest workflow started. Use /api/batch/status to track."
+        workflow["message"] = "Complete pentest workflow started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
         
         return jsonify(workflow), 202
         
     except Exception as e:
         logger.error(f"[!!] Error in complete-pentest workflow: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/workflow/bug-bounty-quick", methods=["POST"])
+def workflow_bug_bounty_quick():
+    """Quick bug bounty workflow - fast high-impact findings (10-12 min)
+    
+    Stages:
+    1. Subdomain enumeration (quick)
+    2. Live host detection + tech stack
+    3. Known exploited vulnerabilities (KEV)
+    4. Content discovery (hidden files/backups)
+    5. Parameter discovery + XSS/SQLi
+    
+    Returns all job IDs organized by stage with session tracking
+    """
+    try:
+        params = request.json
+        target = params.get("target", "").strip()
+        
+        if not target:
+            return jsonify({"error": "target is required"}), 400
+        
+        target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
+        
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "bug-bounty-quick")
+        
+        workflow = {
+            "workflow_name": "bug-bounty-quick",
+            "target": target,
+            "session_id": session_id,
+            "estimated_time": "10-12 minutes",
+            "stages": {}
+        }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            """Helper to create job and register with session"""
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
+        
+        # Stage 1: Quick Subdomain Enumeration
+        stage1_jobs = []
+        for cmd, name in [
+            (f"subfinder -d {target} -all -silent", "subfinder"),
+            (f"curl -s 'https://crt.sh/?q=%25.{target}&output=json' 2>/dev/null | jq -r '.[].name_value' 2>/dev/null | sort -u | head -100", "crtsh"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage1_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["1_subdomain_enum"] = stage1_jobs
+        
+        # Stage 2: Live Host + Tech Stack
+        stage2_jobs = []
+        cmd = f"echo '{target}' | httpx -silent -sc -title -td -ip -cdn -server -hash sha256"
+        job_id = add_job(cmd, "httpx", timeout=120)
+        stage2_jobs.append({"tool": "httpx", "job_id": job_id})
+        workflow["stages"]["2_live_host_tech"] = stage2_jobs
+        
+        # Stage 3: Known Exploited Vulnerabilities (High Impact)
+        stage3_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags kev,vkev -silent -c 50 -rl 150", "nuclei_kev"),
+            (f"nuclei -u https://{target} -severity critical,high -silent -c 50 -rl 150", "nuclei_critical"),
+        ]:
+            job_id = add_job(cmd, name, timeout=300)
+            stage3_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["3_kev_critical_vulns"] = stage3_jobs
+        
+        # Stage 4: Content Discovery (Sensitive Files)
+        stage4_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags exposure,backup,config,git -silent -c 25", "nuclei_exposure"),
+            (f"ffuf -u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,301,302,401,403 -s -t 50 2>/dev/null | head -50", "ffuf"),
+        ]:
+            job_id = add_job(cmd, name, timeout=240)
+            stage4_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["4_content_discovery"] = stage4_jobs
+        
+        # Stage 5: Parameter Discovery + XSS/SQLi Quick Check
+        stage5_jobs = []
+        for cmd, name in [
+            (f"katana -u https://{target} -d 2 -jc -kf -silent -nc 2>/dev/null | head -100", "katana"),
+            (f"gau {target} 2>/dev/null | grep '=' | head -50", "gau_params"),
+            (f"nuclei -u https://{target} -tags xss,sqli -silent -c 25", "nuclei_injection"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage5_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["5_params_injection"] = stage5_jobs
+        
+        # Collect all job IDs
+        all_jobs = []
+        for stage_jobs in workflow["stages"].values():
+            all_jobs.extend([j["job_id"] for j in stage_jobs])
+        
+        workflow["total_jobs"] = len(all_jobs)
+        workflow["all_job_ids"] = all_jobs
+        workflow["message"] = "Bug bounty quick scan started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
+        
+        return jsonify(workflow), 202
+        
+    except Exception as e:
+        logger.error(f"[!!] Error in bug-bounty-quick workflow: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/workflow/api-pentest", methods=["POST"])
+def workflow_api_pentest():
+    """API Security Penetration Testing workflow (15-20 min)
+    
+    Stages:
+    1. API endpoint discovery
+    2. API documentation exposure
+    3. Authentication testing
+    4. Injection vulnerabilities
+    5. Business logic / BOLA/IDOR
+    6. Rate limiting / DoS checks
+    
+    Returns all job IDs organized by stage with session tracking
+    """
+    try:
+        params = request.json
+        target = params.get("target", "").strip()
+        
+        if not target:
+            return jsonify({"error": "target is required"}), 400
+        
+        target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
+        
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "api-pentest")
+        
+        workflow = {
+            "workflow_name": "api-pentest",
+            "target": target,
+            "session_id": session_id,
+            "estimated_time": "15-20 minutes",
+            "stages": {}
+        }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
+        
+        # Stage 1: API Endpoint Discovery
+        stage1_jobs = []
+        for cmd, name in [
+            (f"katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | grep -E '/api/|/v[0-9]/|/graphql' | head -100", "katana_api"),
+            (f"gau {target} 2>/dev/null | grep -E '/api/|/v[0-9]/|/rest/|/graphql' | head -100", "gau_api"),
+            (f"ffuf -u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,201,204,301,302,401,403,405 -s 2>/dev/null | head -50", "ffuf_api"),
+        ]:
+            job_id = add_job(cmd, name, timeout=240)
+            stage1_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["1_endpoint_discovery"] = stage1_jobs
+        
+        # Stage 2: API Documentation Exposure
+        stage2_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags swagger,openapi,graphql,api-docs -silent -c 25", "nuclei_api_docs"),
+            (f"for p in swagger.json openapi.json api-docs swagger/v1/swagger.json v1/swagger.json v2/api-docs graphql; do curl -s -o /dev/null -w '%{{http_code}} https://{target}/'$p'\\n' https://{target}/$p 2>/dev/null; done", "curl_api_docs"),
+        ]:
+            job_id = add_job(cmd, name, timeout=120)
+            stage2_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["2_api_docs_exposure"] = stage2_jobs
+        
+        # Stage 3: Authentication Testing
+        stage3_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags auth-bypass,jwt,token,api-key -silent -c 25", "nuclei_auth"),
+            (f"nuclei -u https://{target} -tags default-login,weak-credentials -silent -c 25", "nuclei_creds"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage3_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["3_auth_testing"] = stage3_jobs
+        
+        # Stage 4: Injection Vulnerabilities
+        stage4_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags sqli,nosqli,injection -silent -c 25", "nuclei_sqli"),
+            (f"nuclei -u https://{target} -tags ssrf,xxe,ssti -silent -c 25", "nuclei_injection"),
+            (f"arjun -u https://{target} -t 10 --stable 2>/dev/null | head -30", "arjun_params"),
+        ]:
+            job_id = add_job(cmd, name, timeout=240)
+            stage4_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["4_injection_vulns"] = stage4_jobs
+        
+        # Stage 5: Business Logic / BOLA/IDOR
+        stage5_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags idor,bola,access-control -silent -c 25", "nuclei_bola"),
+            (f"nuclei -u https://{target} -tags api -silent -c 25", "nuclei_api_vulns"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage5_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["5_business_logic"] = stage5_jobs
+        
+        # Stage 6: Rate Limiting / Information Disclosure
+        stage6_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags ratelimit,dos -silent -c 10", "nuclei_ratelimit"),
+            (f"nuclei -u https://{target} -tags disclosure,debug,error -silent -c 25", "nuclei_disclosure"),
+        ]:
+            job_id = add_job(cmd, name, timeout=120)
+            stage6_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["6_ratelimit_disclosure"] = stage6_jobs
+        
+        # Collect all job IDs
+        all_jobs = []
+        for stage_jobs in workflow["stages"].values():
+            all_jobs.extend([j["job_id"] for j in stage_jobs])
+        
+        workflow["total_jobs"] = len(all_jobs)
+        workflow["all_job_ids"] = all_jobs
+        workflow["message"] = "API pentest workflow started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
+        
+        return jsonify(workflow), 202
+        
+    except Exception as e:
+        logger.error(f"[!!] Error in api-pentest workflow: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/workflow/internal-network", methods=["POST"])
+def workflow_internal_network():
+    """Internal Network Assessment workflow (20-30 min)
+    
+    Stages:
+    1. Network discovery (ARP, ping sweep)
+    2. Port scanning (TCP + UDP)
+    3. Service enumeration
+    4. SMB/Windows enumeration
+    5. Vulnerability scanning
+    6. Credential testing
+    
+    Returns all job IDs organized by stage with session tracking
+    """
+    try:
+        params = request.json
+        target = params.get("target", "").strip()  # Can be IP, range, or CIDR
+        
+        if not target:
+            return jsonify({"error": "target is required (IP, range, or CIDR)"}), 400
+        
+        target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
+        
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "internal-network")
+        
+        workflow = {
+            "workflow_name": "internal-network",
+            "target": target,
+            "session_id": session_id,
+            "estimated_time": "20-30 minutes",
+            "stages": {}
+        }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
+        
+        # Stage 1: Network Discovery
+        stage1_jobs = []
+        for cmd, name in [
+            (f"arp-scan -l 2>/dev/null | head -50 || echo 'arp-scan: Requires local network'", "arp_scan"),
+            (f"nmap -sn {target} 2>/dev/null | grep -E 'Nmap scan|Host is' | head -50", "nmap_ping"),
+            (f"nbtscan {target} 2>/dev/null | head -30", "nbtscan"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage1_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["1_network_discovery"] = stage1_jobs
+        
+        # Stage 2: Port Scanning
+        stage2_jobs = []
+        for cmd, name in [
+            (f"nmap -sV -sC -T4 --top-ports 1000 --open {target} 2>/dev/null | tail -150", "nmap_tcp"),
+            (f"nmap -sU -T4 --top-ports 50 --open {target} 2>/dev/null | grep -E '^[0-9]+' | head -30", "nmap_udp"),
+            (f"masscan {target} -p1-10000 --rate=1000 2>/dev/null | head -50", "masscan"),
+        ]:
+            job_id = add_job(cmd, name, timeout=600)
+            stage2_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["2_port_scanning"] = stage2_jobs
+        
+        # Stage 3: Service Enumeration
+        stage3_jobs = []
+        for cmd, name in [
+            (f"nmap --script banner,version -sV --top-ports 200 {target} 2>/dev/null | tail -100", "nmap_banner"),
+            (f"nmap --script snmp-info,snmp-interfaces -sU -p 161 {target} 2>/dev/null | tail -50", "nmap_snmp"),
+        ]:
+            job_id = add_job(cmd, name, timeout=300)
+            stage3_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["3_service_enum"] = stage3_jobs
+        
+        # Stage 4: SMB/Windows Enumeration
+        stage4_jobs = []
+        for cmd, name in [
+            (f"smbmap -H {target} 2>/dev/null || smbmap -H {target} -u '' -p '' 2>/dev/null", "smbmap"),
+            (f"enum4linux-ng -A {target} 2>/dev/null | head -150", "enum4linux"),
+            (f"nxc smb {target} --shares 2>/dev/null | head -30", "nxc_shares"),
+            (f"rpcclient -U '' -N {target} -c 'enumdomusers; enumdomgroups' 2>/dev/null | head -50", "rpcclient"),
+            (f"nmap --script smb-enum-shares,smb-enum-users,smb-os-discovery,smb-vuln* -p 139,445 {target} 2>/dev/null | tail -80", "nmap_smb"),
+        ]:
+            job_id = add_job(cmd, name, timeout=300)
+            stage4_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["4_smb_windows_enum"] = stage4_jobs
+        
+        # Stage 5: Vulnerability Scanning
+        stage5_jobs = []
+        for cmd, name in [
+            (f"nmap --script vuln,exploit --top-ports 100 {target} 2>/dev/null | tail -100", "nmap_vuln"),
+            (f"nmap --script smb-vuln* -p 139,445 {target} 2>/dev/null | tail -50", "nmap_smb_vuln"),
+        ]:
+            job_id = add_job(cmd, name, timeout=600)
+            stage5_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["5_vuln_scanning"] = stage5_jobs
+        
+        # Stage 6: Credential Testing (light)
+        stage6_jobs = []
+        for cmd, name in [
+            (f"nmap --script ftp-anon,ssh-auth-methods -p 21,22 {target} 2>/dev/null | tail -30", "nmap_anon"),
+            (f"nxc smb {target} -u '' -p '' 2>/dev/null | head -20", "nxc_null"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage6_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["6_credential_testing"] = stage6_jobs
+        
+        # Collect all job IDs
+        all_jobs = []
+        for stage_jobs in workflow["stages"].values():
+            all_jobs.extend([j["job_id"] for j in stage_jobs])
+        
+        workflow["total_jobs"] = len(all_jobs)
+        workflow["all_job_ids"] = all_jobs
+        workflow["message"] = "Internal network assessment started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
+        
+        return jsonify(workflow), 202
+        
+    except Exception as e:
+        logger.error(f"[!!] Error in internal-network workflow: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/workflow/red-team-full", methods=["POST"])
+def workflow_red_team_full():
+    """Full Red Team Assessment workflow (45-60 min)
+    
+    Complete offensive security assessment combining all phases:
+    1. OSINT & reconnaissance
+    2. Infrastructure mapping
+    3. Vulnerability discovery
+    4. Exploitation research
+    5. Web application testing
+    6. Authentication attacks
+    7. Post-exploitation prep
+    
+    Returns all job IDs organized by stage with session tracking
+    """
+    try:
+        params = request.json
+        target = params.get("target", "").strip()
+        
+        if not target:
+            return jsonify({"error": "target is required"}), 400
+        
+        target = target.replace("'", "").replace('"', '').replace(';', '').replace('|', '')
+        
+        # Create session for this workflow
+        session_id = session_manager.create_session(target, "red-team-full")
+        
+        workflow = {
+            "workflow_name": "red-team-full",
+            "target": target,
+            "session_id": session_id,
+            "estimated_time": "45-60 minutes",
+            "stages": {}
+        }
+        
+        def add_job(cmd: str, tool_name: str, timeout: int = 300) -> str:
+            job_id = job_manager.create_job(cmd, timeout=timeout)
+            session_manager.add_job(session_id, job_id, tool_name, cmd)
+            return job_id
+        
+        # Stage 1: OSINT & Reconnaissance
+        stage1_jobs = []
+        for cmd, name in [
+            (f"theHarvester -d {target} -b all -l 200 2>&1 | tail -100", "theHarvester"),
+            (f"subfinder -d {target} -all -recursive -silent", "subfinder"),
+            (f"amass enum -passive -d {target} -timeout 5 2>/dev/null | head -150", "amass"),
+            (f"whois {target} 2>/dev/null", "whois"),
+            (f"curl -s 'https://crt.sh/?q=%25.{target}&output=json' 2>/dev/null | jq -r '.[].name_value' 2>/dev/null | sort -u | head -100", "crtsh"),
+        ]:
+            job_id = add_job(cmd, name, timeout=360)
+            stage1_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["1_osint_recon"] = stage1_jobs
+        
+        # Stage 2: Infrastructure Mapping
+        stage2_jobs = []
+        for cmd, name in [
+            (f"echo '{target}' | httpx -silent -sc -cl -title -td -ip -cname -cdn -asn -server -hash sha256 -jarm", "httpx"),
+            (f"nmap -sV -sC -T4 --top-ports 1000 --open -oG - {target} 2>/dev/null | grep -v '^#'", "nmap_tcp"),
+            (f"masscan {target} -p1-10000 --rate=1000 2>/dev/null | head -80", "masscan"),
+            (f"wafw00f https://{target} -a 2>/dev/null", "wafw00f"),
+        ]:
+            job_id = add_job(cmd, name, timeout=600)
+            stage2_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["2_infrastructure_mapping"] = stage2_jobs
+        
+        # Stage 3: Vulnerability Discovery
+        stage3_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags kev,vkev -silent -c 50 -rl 150", "nuclei_kev"),
+            (f"nuclei -u https://{target} -severity critical,high -silent -c 50 -rl 150", "nuclei_critical"),
+            (f"nuclei -u https://{target} -tags cve -silent -c 25 -rl 100", "nuclei_cve"),
+            (f"nuclei -u https://{target} -tags exposure,misconfig,default-login -silent -c 25", "nuclei_misconfig"),
+            (f"nikto -h https://{target} -Tuning 1234567890 -no404 2>&1 | tail -100", "nikto"),
+            (f"nmap --script vuln,exploit --top-ports 100 {target} 2>/dev/null | tail -80", "nmap_vuln"),
+        ]:
+            job_id = add_job(cmd, name, timeout=600)
+            stage3_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["3_vuln_discovery"] = stage3_jobs
+        
+        # Stage 4: Exploitation Research
+        stage4_jobs = []
+        for cmd, name in [
+            (f"searchsploit {target} 2>/dev/null | head -40", "searchsploit"),
+            (f"nuclei -u https://{target} -tags rce,lfi,ssrf -silent -c 25", "nuclei_rce"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage4_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["4_exploit_research"] = stage4_jobs
+        
+        # Stage 5: Web Application Testing
+        stage5_jobs = []
+        for cmd, name in [
+            (f"gobuster dir -u https://{target} -w /usr/share/wordlists/dirb/common.txt -q -t 40 -x php,asp,html,txt,bak,json 2>/dev/null | head -80", "gobuster"),
+            (f"katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | head -150", "katana"),
+            (f"gau --subs {target} 2>/dev/null | head -150", "gau"),
+            (f"nuclei -u https://{target} -tags xss,sqli,injection -silent -c 25", "nuclei_injection"),
+            (f"sqlmap -u 'https://{target}' --batch --level=2 --risk=2 --crawl=2 --forms --random-agent 2>/dev/null | tail -50", "sqlmap"),
+        ]:
+            job_id = add_job(cmd, name, timeout=480)
+            stage5_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["5_web_app_testing"] = stage5_jobs
+        
+        # Stage 6: Authentication Attacks
+        stage6_jobs = []
+        for cmd, name in [
+            (f"nuclei -u https://{target} -tags default-login,weak-credentials -silent -c 50", "nuclei_default"),
+            (f"nuclei -u https://{target} -tags auth-bypass,jwt -silent -c 25", "nuclei_auth"),
+            (f"nmap --script http-default-accounts,ftp-anon,ssh-auth-methods -p 21,22,80,443,8080 {target} 2>/dev/null | tail -40", "nmap_auth"),
+        ]:
+            job_id = add_job(cmd, name, timeout=300)
+            stage6_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["6_auth_attacks"] = stage6_jobs
+        
+        # Stage 7: Post-Exploitation Prep (info gathering for next steps)
+        stage7_jobs = []
+        for cmd, name in [
+            (f"nmap --script smb-enum-shares,smb-enum-users,smb-os-discovery -p 139,445 {target} 2>/dev/null | tail -60", "nmap_smb"),
+            (f"smbmap -H {target} 2>/dev/null | head -30", "smbmap"),
+            (f"nxc smb {target} --shares 2>/dev/null | head -20", "nxc_shares"),
+        ]:
+            job_id = add_job(cmd, name, timeout=180)
+            stage7_jobs.append({"tool": name, "job_id": job_id})
+        workflow["stages"]["7_post_exploit_prep"] = stage7_jobs
+        
+        # Collect all job IDs
+        all_jobs = []
+        for stage_jobs in workflow["stages"].values():
+            all_jobs.extend([j["job_id"] for j in stage_jobs])
+        
+        workflow["total_jobs"] = len(all_jobs)
+        workflow["all_job_ids"] = all_jobs
+        workflow["message"] = "Red team full assessment started with session tracking."
+        workflow["session_endpoints"] = {
+            "status": f"/api/session/{session_id}",
+            "findings": f"/api/session/{session_id}/findings",
+            "assets": f"/api/session/{session_id}/assets",
+            "report": f"/api/session/{session_id}/report?format=markdown",
+            "files": f"/api/session/{session_id}/files"
+        }
+        
+        return jsonify(workflow), 202
+        
+    except Exception as e:
+        logger.error(f"[!!] Error in red-team-full workflow: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================================
+# RESULT AGGREGATION & REPORTING (v6.2)
+# ============================================================================
+
+@app.route("/api/report", methods=["POST"])
+def generate_report():
+    """Aggregate results from multiple jobs into a unified report
+    
+    Request body:
+        job_ids: List of job IDs to aggregate
+        format: "json" or "markdown" (default: json)
+        include_raw: Include raw output (default: false)
+        
+    Returns aggregated findings organized by severity and category
+    """
+    try:
+        params = request.json
+        job_ids = params.get("job_ids", [])
+        report_format = params.get("format", "json")
+        include_raw = params.get("include_raw", False)
+        
+        if not job_ids:
+            return jsonify({"error": "job_ids is required"}), 400
+        
+        # Collect all job results
+        results = []
+        completed = 0
+        failed = 0
+        pending = 0
+        
+        for job_id in job_ids:
+            job_status = job_manager.get_job_status(job_id)
+            if "error" not in job_status:
+                status = job_status.get("status", "")
+                if status == "completed":
+                    completed += 1
+                    # Get output from result
+                    result = job_status.get("result", {})
+                    output = result.get("stdout", "") or result.get("stderr", "")
+                    results.append({
+                        "job_id": job_id,
+                        "command": job_status.get("command", "")[:100],
+                        "output": output,
+                        "exit_code": result.get("return_code", 0)
+                    })
+                elif status == "failed":
+                    failed += 1
+                else:
+                    pending += 1
+        
+        # Parse and categorize findings
+        findings = {
+            "critical": [],
+            "high": [],
+            "medium": [],
+            "low": [],
+            "info": []
+        }
+        
+        # Pattern matching for severity
+        critical_patterns = ["critical", "rce", "remote code execution", "command injection", "kev", "cve-202"]
+        high_patterns = ["high", "sqli", "sql injection", "xss", "ssrf", "lfi", "rfi", "xxe", "auth bypass"]
+        medium_patterns = ["medium", "csrf", "open redirect", "information disclosure", "misconfig"]
+        low_patterns = ["low", "cookie", "header", "version"]
+        
+        for result in results:
+            output = result.get("output", "").lower()
+            finding = {
+                "source": result.get("command", "")[:50],
+                "job_id": result.get("job_id"),
+                "snippet": result.get("output", "")[:500] if not include_raw else result.get("output", "")
+            }
+            
+            # Categorize by severity based on output content
+            if any(p in output for p in critical_patterns):
+                if "[critical]" in output or "severity:critical" in output:
+                    findings["critical"].append(finding)
+                elif any(p in output for p in high_patterns):
+                    findings["high"].append(finding)
+                else:
+                    findings["critical"].append(finding)
+            elif any(p in output for p in high_patterns):
+                findings["high"].append(finding)
+            elif any(p in output for p in medium_patterns):
+                findings["medium"].append(finding)
+            elif any(p in output for p in low_patterns):
+                findings["low"].append(finding)
+            elif result.get("output", "").strip():
+                findings["info"].append(finding)
+        
+        report = {
+            "report_generated": datetime.now().isoformat(),
+            "summary": {
+                "total_jobs": len(job_ids),
+                "completed": completed,
+                "failed": failed,
+                "pending": pending,
+                "findings_by_severity": {
+                    "critical": len(findings["critical"]),
+                    "high": len(findings["high"]),
+                    "medium": len(findings["medium"]),
+                    "low": len(findings["low"]),
+                    "info": len(findings["info"])
+                }
+            },
+            "findings": findings
+        }
+        
+        if report_format == "markdown":
+            # Generate markdown report
+            md = f"""# Security Assessment Report
+Generated: {report["report_generated"]}
+
+## Summary
+- **Total Jobs:** {completed + failed + pending}
+- **Completed:** {completed}
+- **Failed:** {failed}
+- **Pending:** {pending}
+
+## Findings by Severity
+| Severity | Count |
+|----------|-------|
+| 🔴 Critical | {len(findings["critical"])} |
+| 🟠 High | {len(findings["high"])} |
+| 🟡 Medium | {len(findings["medium"])} |
+| 🔵 Low | {len(findings["low"])} |
+| ⚪ Info | {len(findings["info"])} |
+
+"""
+            for severity in ["critical", "high", "medium", "low"]:
+                if findings[severity]:
+                    md += f"\n## {severity.upper()} Findings\n\n"
+                    for i, f in enumerate(findings[severity][:10], 1):  # Limit to 10 per category
+                        md += f"### {i}. {f['source']}\n```\n{f['snippet'][:300]}...\n```\n\n"
+            
+            return jsonify({"report": md, "format": "markdown"}), 200
+        
+        return jsonify(report), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error generating report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/report/<job_id>", methods=["GET"])
+def get_single_job_report(job_id: str):
+    """Get a detailed report for a single job"""
+    try:
+        job_status = job_manager.get_job_status(job_id)
+        if "error" in job_status:
+            return jsonify({"error": f"Job {job_id} not found"}), 404
+        
+        result = job_status.get("result", {})
+        return jsonify({
+            "job_id": job_id,
+            "status": job_status.get("status"),
+            "command": job_status.get("command"),
+            "output": result.get("stdout", "") or result.get("stderr", ""),
+            "exit_code": result.get("return_code"),
+            "created_at": job_status.get("created_at"),
+            "completed_at": job_status.get("completed_at"),
+            "elapsed_seconds": job_status.get("elapsed_seconds")
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error getting job report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================================
+# SESSION API ENDPOINTS (v6.3 - Persistent Storage)
+# ============================================================================
+
+@app.route("/api/session/create", methods=["POST"])
+def create_session():
+    """Create a new scan session for persistent storage"""
+    try:
+        data = request.get_json() or {}
+        target = data.get("target", "unknown")
+        session_type = data.get("type", "manual")
+        notes = data.get("notes", "")
+        
+        session_id = session_manager.create_session(target, session_type, notes)
+        session_dir = session_manager.get_session_dir(session_id)
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "target": target,
+            "type": session_type,
+            "directory": str(session_dir) if session_dir else None,
+            "message": f"Session created. Use session_id in subsequent requests for persistent storage."
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"[!!] Error creating session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>", methods=["GET"])
+def get_session(session_id: str):
+    """Get session details and status"""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+        
+        summary = session_manager.get_session_summary(session_id)
+        return jsonify({
+            "session": session,
+            "summary": summary
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error getting session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/jobs", methods=["GET"])
+def get_session_jobs(session_id: str):
+    """Get all jobs for a session"""
+    try:
+        jobs = session_manager.get_session_jobs(session_id)
+        return jsonify({
+            "session_id": session_id,
+            "jobs": jobs,
+            "count": len(jobs)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error getting session jobs: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/findings", methods=["GET"])
+def get_session_findings(session_id: str):
+    """Get parsed findings for a session"""
+    try:
+        severity = request.args.get("severity")
+        findings = session_manager.get_session_findings(session_id, severity)
+        
+        # Group by severity for summary
+        by_severity = {}
+        for f in findings:
+            sev = f.get("severity", "info")
+            if sev not in by_severity:
+                by_severity[sev] = []
+            by_severity[sev].append(f)
+        
+        return jsonify({
+            "session_id": session_id,
+            "total_findings": len(findings),
+            "by_severity": {sev: len(items) for sev, items in by_severity.items()},
+            "findings": findings
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error getting session findings: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/assets", methods=["GET"])
+def get_session_assets(session_id: str):
+    """Get discovered assets for a session"""
+    try:
+        asset_type = request.args.get("type")
+        assets = session_manager.get_session_assets(session_id, asset_type)
+        
+        # Group by type
+        by_type = {}
+        for a in assets:
+            atype = a.get("asset_type", "unknown")
+            if atype not in by_type:
+                by_type[atype] = []
+            by_type[atype].append(a.get("value"))
+        
+        return jsonify({
+            "session_id": session_id,
+            "total_assets": len(assets),
+            "by_type": {t: len(items) for t, items in by_type.items()},
+            "assets": by_type if not asset_type else {asset_type: by_type.get(asset_type, [])}
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error getting session assets: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/report", methods=["GET"])
+def get_session_report(session_id: str):
+    """Generate comprehensive session report"""
+    try:
+        format_type = request.args.get("format", "json")
+        report = session_manager.generate_session_report(session_id, format_type)
+        
+        if "error" in report:
+            return jsonify(report), 404
+        
+        return jsonify(report), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error generating session report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/files", methods=["GET"])
+def list_session_files(session_id: str):
+    """List all output files for a session"""
+    try:
+        session_dir = session_manager.get_session_dir(session_id)
+        if not session_dir or not session_dir.exists():
+            return jsonify({"error": "Session directory not found"}), 404
+        
+        files = {}
+        for subdir in ["raw", "parsed"]:
+            dir_path = session_dir / subdir
+            if dir_path.exists():
+                files[subdir] = [f.name for f in dir_path.iterdir() if f.is_file()]
+        
+        return jsonify({
+            "session_id": session_id,
+            "directory": str(session_dir),
+            "files": files
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error listing session files: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/file/<path:filename>", methods=["GET"])
+def get_session_file(session_id: str, filename: str):
+    """Get contents of a specific session file"""
+    try:
+        session_dir = session_manager.get_session_dir(session_id)
+        if not session_dir:
+            return jsonify({"error": "Session not found"}), 404
+        
+        # Check in raw and parsed directories
+        for subdir in ["raw", "parsed", ""]:
+            file_path = session_dir / subdir / filename if subdir else session_dir / filename
+            if file_path.exists() and file_path.is_file():
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                return jsonify({
+                    "session_id": session_id,
+                    "filename": filename,
+                    "path": str(file_path),
+                    "content": content,
+                    "size": file_path.stat().st_size
+                }), 200
+        
+        return jsonify({"error": f"File {filename} not found"}), 404
+        
+    except Exception as e:
+        logger.error(f"[!!] Error reading session file: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/<session_id>/complete", methods=["POST"])
+def complete_session(session_id: str):
+    """Mark a session as completed"""
+    try:
+        session_manager.complete_session(session_id)
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "status": "completed"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error completing session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/sessions", methods=["GET"])
+def list_sessions():
+    """List all sessions"""
+    try:
+        limit = request.args.get("limit", 20, type=int)
+        sessions = session_manager.list_sessions(limit)
+        return jsonify({
+            "sessions": sessions,
+            "count": len(sessions)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[!!] Error listing sessions: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/session/scan", methods=["POST"])
+def session_scan():
+    """Run a scan with automatic session management"""
+    try:
+        data = request.get_json() or {}
+        target = data.get("target")
+        tools = data.get("tools", [])
+        workflow = data.get("workflow")
+        
+        if not target:
+            return jsonify({"error": "Target is required"}), 400
+        
+        if not tools and not workflow:
+            return jsonify({"error": "Either 'tools' or 'workflow' is required"}), 400
+        
+        # Create session
+        session_type = workflow if workflow else "custom"
+        session_id = session_manager.create_session(target, session_type)
+        
+        job_ids = []
+        
+        if workflow:
+            # Use workflow endpoint logic (simplified)
+            # This would trigger the appropriate workflow
+            pass
+        else:
+            # Run individual tools
+            for tool_config in tools:
+                tool_name = tool_config if isinstance(tool_config, str) else tool_config.get("tool")
+                extra_args = "" if isinstance(tool_config, str) else tool_config.get("args", "")
+                
+                # Generate command based on tool
+                command = f"{tool_name} {extra_args}".strip() if extra_args else tool_name
+                
+                # Submit job
+                job_id = job_manager.submit_job(command, category=tool_name, timeout=300)
+                session_manager.add_job(session_id, job_id, tool_name, command)
+                job_ids.append({"job_id": job_id, "tool": tool_name})
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "target": target,
+            "jobs": job_ids,
+            "total_jobs": len(job_ids),
+            "endpoints": {
+                "status": f"/api/session/{session_id}",
+                "jobs": f"/api/session/{session_id}/jobs",
+                "findings": f"/api/session/{session_id}/findings",
+                "assets": f"/api/session/{session_id}/assets",
+                "report": f"/api/session/{session_id}/report",
+                "files": f"/api/session/{session_id}/files"
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"[!!] Error starting session scan: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/workflows", methods=["GET"])
@@ -10245,8 +12131,37 @@ def list_workflows():
                 "stages": 8,
                 "estimated_time": "30-40 minutes",
                 "coverage": "Full attack surface + vulnerability coverage"
+            },
+            "bug-bounty-quick": {
+                "endpoint": "/api/workflow/bug-bounty-quick",
+                "description": "Quick bug bounty - fast high-impact findings",
+                "stages": 5,
+                "estimated_time": "10-12 minutes",
+                "coverage": "Subdomains, KEV, critical vulns, hidden files, injection"
+            },
+            "api-pentest": {
+                "endpoint": "/api/workflow/api-pentest",
+                "description": "API security testing - REST/GraphQL comprehensive",
+                "stages": 6,
+                "estimated_time": "15-20 minutes",
+                "coverage": "API endpoints, auth, injection, BOLA/IDOR, rate limiting"
+            },
+            "internal-network": {
+                "endpoint": "/api/workflow/internal-network",
+                "description": "Internal network assessment - AD/Windows focused",
+                "stages": 6,
+                "estimated_time": "20-30 minutes",
+                "coverage": "Network discovery, ports, SMB, Windows enum, credentials"
+            },
+            "red-team-full": {
+                "endpoint": "/api/workflow/red-team-full",
+                "description": "Full red team simulation - complete offensive assessment",
+                "stages": 7,
+                "estimated_time": "45-60 minutes",
+                "coverage": "OSINT, infrastructure, vulns, exploits, web, auth, post-exploit"
             }
-        }
+        },
+        "total_workflows": 7
     })
 
 # File Operations API Endpoints
