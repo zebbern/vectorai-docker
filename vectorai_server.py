@@ -69,13 +69,24 @@ from mitmproxy.options import Options as MitmOptions
 # ============================================================================
 
 # Configure logging with fallback for permission issues
+log_dir = '/app/logs'
+log_file = os.path.join(log_dir, 'VectorAI.log')
+
+# Ensure log directory exists
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except PermissionError:
+    # Fallback to local directory if /app/logs is not writable
+    log_dir = '.'
+    log_file = 'VectorAI.log'
+
 try:
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler('VectorAI.log')
+            logging.FileHandler(log_file)
         ]
     )
 except PermissionError:
@@ -3228,7 +3239,7 @@ class CTFWorkflowManager:
                 {"step": 1, "action": "automated_reconnaissance", "description": "Automated web reconnaissance and technology detection", "parallel": True, "tools": ["httpx", "whatweb", "katana"], "estimated_time": 300},
                 {"step": 2, "action": "source_code_analysis", "description": "Comprehensive source code and comment analysis", "parallel": False, "tools": ["manual"], "estimated_time": 600},
                 {"step": 3, "action": "directory_enumeration", "description": "Multi-tool directory and file enumeration", "parallel": True, "tools": ["gobuster", "dirsearch", "feroxbuster"], "estimated_time": 900},
-                {"step": 4, "action": "parameter_discovery", "description": "Parameter discovery and testing", "parallel": True, "tools": ["arjun", "paramspider"], "estimated_time": 600},
+                {"step": 4, "action": "parameter_discovery", "description": "Parameter discovery and testing", "parallel": True, "tools": ["arjun"], "estimated_time": 600},
                 {"step": 5, "action": "vulnerability_scanning", "description": "Automated vulnerability scanning", "parallel": True, "tools": ["sqlmap", "dalfox", "nikto"], "estimated_time": 1200},
                 {"step": 6, "action": "manual_testing", "description": "Manual testing of discovered attack vectors", "parallel": False, "tools": ["manual"], "estimated_time": 1800},
                 {"step": 7, "action": "exploitation", "description": "Exploit discovered vulnerabilities", "parallel": False, "tools": ["custom"], "estimated_time": 900},
@@ -3309,7 +3320,7 @@ class CTFWorkflowManager:
             "web": [
                 {"task_group": "reconnaissance", "tasks": ["httpx", "whatweb", "katana"], "max_concurrent": 3},
                 {"task_group": "directory_enumeration", "tasks": ["gobuster", "dirsearch", "feroxbuster"], "max_concurrent": 2},
-                {"task_group": "parameter_discovery", "tasks": ["arjun", "paramspider"], "max_concurrent": 2},
+                {"task_group": "parameter_discovery", "tasks": ["arjun"], "max_concurrent": 2},
                 {"task_group": "vulnerability_scanning", "tasks": ["sqlmap", "dalfox", "nikto"], "max_concurrent": 2}
             ],
             "crypto": [
@@ -3503,15 +3514,15 @@ class CTFToolManager:
     def __init__(self):
         self.tool_commands = {
             # Web Application Security Tools
-            "httpx": "httpx -probe -tech-detect -status-code -title -content-length",
+            "httpx": "httpx-toolkit -probe -tech-detect -status-code -title -content-length",
             "katana": "katana -depth 3 -js-crawl -form-extraction -headless",
             "sqlmap": "sqlmap --batch --level 3 --risk 2 --threads 5",
             "dalfox": "dalfox url --mining-dom --mining-dict --deep-domxss",
             "gobuster": "gobuster dir -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,txt,js",
             "dirsearch": "dirsearch -u {} -e php,html,js,txt,xml,json -t 50",
             "feroxbuster": "feroxbuster -u {} -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,js,txt",
-            "arjun": "arjun -u {} --get --post",
-            "paramspider": "paramspider -d {}",
+            "arjun": "arjun -u {} -m GET",
+            # "paramspider": "paramspider -d {}",
             "wpscan": "wpscan --url {} --enumerate ap,at,cb,dbe",
             "nikto": "nikto -h {} -C all",
             "whatweb": "whatweb -v -a 3",
@@ -3521,17 +3532,17 @@ class CTFToolManager:
             "john": "john --wordlist=/usr/share/wordlists/rockyou.txt --format=Raw-MD5",
             "hash-identifier": "hash-identifier",
             "hashid": "hashid -m",
-            "cipher-identifier": "python3 /opt/cipher-identifier/cipher_identifier.py",
-            "factordb": "python3 /opt/factordb/factordb.py",
-            "rsatool": "python3 /opt/rsatool/rsatool.py",
-            "yafu": "yafu",
-            "sage": "sage -python",
+            # "cipher-identifier": "python3 /opt/cipher-identifier/cipher_identifier.py",
+            # "factordb": "python3 /opt/factordb/factordb.py",
+            # "rsatool": "rsatool",
+            # "yafu": "yafu",
+            # "sage": "sage -python",
             "openssl": "openssl",
             "gpg": "gpg --decrypt",
             "steganography": "stegcracker",
-            "frequency-analysis": "python3 /opt/frequency-analysis/freq_analysis.py",
-            "substitution-solver": "python3 /opt/substitution-solver/solve.py",
-            "vigenere-solver": "python3 /opt/vigenere-solver/vigenere.py",
+            # "frequency-analysis": "python3 /opt/frequency-analysis/freq_analysis.py",
+            # "substitution-solver": "python3 /opt/substitution-solver/solve.py",
+            # "vigenere-solver": "python3 /opt/vigenere-solver/vigenere.py",
             "base64": "base64 -d",
             "base32": "base32 -d",
             "hex": "xxd -r -p",
@@ -3539,46 +3550,46 @@ class CTFToolManager:
 
             # Binary Exploitation (Pwn) Tools
             "checksec": "checksec --file",
-            "pwntools": "python3 -c 'from pwn import *; context.log_level = \"debug\"'",
+            # "pwntools": "python3 -c 'from pwn import *; context.log_level = \"debug\"'",
             "ropper": "ropper --file {} --search",
-            "ropgadget": "ROPgadget --binary",
-            "one-gadget": "one_gadget",
-            "gdb-peda": "gdb -ex 'source /opt/peda/peda.py'",
-            "gdb-gef": "gdb -ex 'source /opt/gef/gef.py'",
-            "gdb-pwngdb": "gdb -ex 'source /opt/Pwngdb/pwngdb.py'",
-            "angr": "python3 -c 'import angr'",
+            # "ropgadget": "ROPgadget --binary",
+            # "one-gadget": "one_gadget",
+            # "gdb-peda": "gdb -ex 'source /opt/peda/peda.py'",
+            # "gdb-gef": "gdb -ex 'source /opt/gef/gef.py'",
+            # "gdb-pwngdb": "gdb -ex 'source /opt/Pwngdb/pwngdb.py'",
+            # "angr": "python3 -c 'import angr'",
             "radare2": "r2 -A",
-            "ghidra": "analyzeHeadless /tmp ghidra_project -import",
-            "binary-ninja": "binaryninja",
+            "ghidra": "ghidra", # Updated to just run ghidra
+            # "binary-ninja": "binaryninja",
             "ltrace": "ltrace",
             "strace": "strace -f",
-            "objdump": "objdump -d -M intel",
-            "readelf": "readelf -a",
-            "nm": "nm -D",
-            "ldd": "ldd",
+            # "objdump": "objdump -d -M intel",
+            # "readelf": "readelf -a",
+            # "nm": "nm -D",
+            # "ldd": "ldd",
             "file": "file",
             "strings": "strings -n 8",
-            "hexdump": "hexdump -C",
-            "pwninit": "pwninit",
-            "libc-database": "python3 /opt/libc-database/find.py",
+            # "hexdump": "hexdump -C",
+            # "pwninit": "pwninit",
+            # "libc-database": "python3 /opt/libc-database/find.py",
 
             # Forensics Investigation Tools
             "binwalk": "binwalk -e --dd='.*'",
             "foremost": "foremost -i {} -o /tmp/foremost_output",
-            "photorec": "photorec /log /cmd",
+            # "photorec": "photorec /log /cmd",
             "testdisk": "testdisk /log",
             "exiftool": "exiftool -all",
             "steghide": "steghide extract -sf {} -p ''",
-            "stegsolve": "java -jar /opt/stegsolve/stegsolve.jar",
-            "zsteg": "zsteg -a",
-            "outguess": "outguess -r",
-            "jsteg": "jsteg reveal",
-            "volatility": "volatility -f {} imageinfo",
-            "volatility3": "python3 /opt/volatility3/vol.py -f",
-            "rekall": "rekall -f",
-            "wireshark": "tshark -r",
+            # "stegsolve": "java -jar /opt/stegsolve/stegsolve.jar",
+            # "zsteg": "zsteg -a",
+            # "outguess": "outguess -r",
+            # "jsteg": "jsteg reveal",
+            # "volatility": "volatility -f {} imageinfo",
+            # "volatility3": "python3 /opt/volatility3/vol.py -f",
+            # "rekall": "rekall -f",
+            "wireshark": "tshark -r", # Use tshark instead of wireshark
             "tcpdump": "tcpdump -r",
-            "networkminer": "mono /opt/NetworkMiner/NetworkMiner.exe",
+            # "networkminer": "mono /opt/NetworkMiner/NetworkMiner.exe",
             "autopsy": "autopsy",
             "sleuthkit": "fls -r",
             "scalpel": "scalpel -c /etc/scalpel/scalpel.conf",
@@ -3587,58 +3598,58 @@ class CTFToolManager:
             "dc3dd": "dc3dd",
 
             # Reverse Engineering Tools
-            "ida": "ida64",
-            "ida-free": "ida64 -A",
-            "retdec": "retdec-decompiler",
+            # "ida": "ida64",
+            # "ida-free": "ida64 -A",
+            # "retdec": "retdec-decompiler",
             "upx": "upx -d",
-            "peid": "peid",
-            "detect-it-easy": "die",
-            "x64dbg": "x64dbg",
-            "ollydbg": "ollydbg",
-            "immunity": "immunity",
-            "windbg": "windbg",
+            # "peid": "peid",
+            # "detect-it-easy": "die",
+            # "x64dbg": "x64dbg",
+            # "ollydbg": "ollydbg",
+            # "immunity": "immunity",
+            # "windbg": "windbg",
             "apktool": "apktool d",
             "jadx": "jadx",
             "dex2jar": "dex2jar",
             "jd-gui": "jd-gui",
-            "dnspy": "dnspy",
-            "ilspy": "ilspy",
-            "dotpeek": "dotpeek",
+            # "dnspy": "dnspy",
+            # "ilspy": "ilspy",
+            # "dotpeek": "dotpeek",
 
             # OSINT and Reconnaissance Tools
             "sherlock": "sherlock",
-            "social-analyzer": "social-analyzer",
+            # "social-analyzer": "social-analyzer",
             "theHarvester": "theHarvester -d {} -b all",
             "recon-ng": "recon-ng",
             "maltego": "maltego",
             "spiderfoot": "spiderfoot",
-            "shodan": "shodan search",
-            "censys": "censys search",
+            # "shodan": "shodan search",
+            # "censys": "censys search",
             "whois": "whois",
-            "dig": "dig",
-            "nslookup": "nslookup",
-            "host": "host",
+            # "dig": "dig",
+            # "nslookup": "nslookup",
+            # "host": "host",
             "dnsrecon": "dnsrecon -d",
             "fierce": "fierce -dns",
             "sublist3r": "sublist3r -d",
             "amass": "amass enum -d",
-            "assetfinder": "assetfinder",
+            # "assetfinder": "assetfinder",
             "subfinder": "subfinder -d",
-            "waybackurls": "waybackurls",
-            "gau": "gau",
-            "httpx-osint": "httpx -title -tech-detect -status-code",
+            # "waybackurls": "waybackurls",
+            # "gau": "gau",
+            "httpx-osint": "httpx-toolkit -title -tech-detect -status-code",
 
             # Miscellaneous Challenge Tools
             "qr-decoder": "zbarimg",
             "barcode-decoder": "zbarimg",
-            "audio-analysis": "audacity",
-            "sonic-visualizer": "sonic-visualizer",
-            "spectrum-analyzer": "python3 /opt/spectrum-analyzer/analyze.py",
-            "brainfuck": "python3 /opt/brainfuck/bf.py",
-            "whitespace": "python3 /opt/whitespace/ws.py",
-            "piet": "python3 /opt/piet/piet.py",
-            "malbolge": "python3 /opt/malbolge/malbolge.py",
-            "ook": "python3 /opt/ook/ook.py",
+            # "audio-analysis": "audacity",
+            # "sonic-visualizer": "sonic-visualizer",
+            # "spectrum-analyzer": "python3 /opt/spectrum-analyzer/analyze.py",
+            # "brainfuck": "python3 /opt/brainfuck/bf.py",
+            # "whitespace": "python3 /opt/whitespace/ws.py",
+            # "piet": "python3 /opt/piet/piet.py",
+            # "malbolge": "python3 /opt/malbolge/malbolge.py",
+            # "ook": "python3 /opt/ook/ook.py",
             "zip": "unzip -P",
             "7zip": "7z x -p",
             "rar": "unrar x -p",
@@ -3650,60 +3661,60 @@ class CTFToolManager:
             "compress": "uncompress",
 
             # Modern Web Technologies
-            "jwt-tool": "python3 /opt/jwt_tool/jwt_tool.py",
-            "jwt-cracker": "jwt-cracker",
-            "graphql-voyager": "graphql-voyager",
-            "graphql-playground": "graphql-playground",
-            "postman": "newman run",
-            "burpsuite": "java -jar /opt/burpsuite/burpsuite.jar",
-            "owasp-zap": "zap.sh -cmd",
-            "websocket-king": "python3 /opt/websocket-king/ws_test.py",
+            # "jwt-tool": "python3 /opt/jwt_tool/jwt_tool.py",
+            # "jwt-cracker": "jwt-cracker",
+            # "graphql-voyager": "graphql-voyager",
+            # "graphql-playground": "graphql-playground",
+            # "postman": "newman run",
+            # "burpsuite": "java -jar /opt/burpsuite/burpsuite.jar",
+            "owasp-zap": "zaproxy -cmd",
+            # "websocket-king": "python3 /opt/websocket-king/ws_test.py",
 
             # Cloud and Container Security
-            "docker": "docker",
-            "kubectl": "kubectl",
-            "aws-cli": "aws",
-            "azure-cli": "az",
-            "gcloud": "gcloud",
-            "terraform": "terraform",
-            "ansible": "ansible",
+            # "docker": "docker",
+            # "kubectl": "kubectl",
+            # "aws-cli": "aws",
+            # "azure-cli": "az",
+            # "gcloud": "gcloud",
+            # "terraform": "terraform",
+            # "ansible": "ansible",
 
             # Mobile Application Security
             "adb": "adb",
-            "frida": "frida",
-            "objection": "objection",
-            "mobsf": "python3 /opt/mobsf/manage.py",
-            "apkleaks": "apkleaks -f",
-            "qark": "qark --apk"
+            # "frida": "frida",
+            # "objection": "objection",
+            # "mobsf": "python3 /opt/mobsf/manage.py",
+            # "apkleaks": "apkleaks -f",
+            # "qark": "qark --apk"
         }
 
         # Tool categories for intelligent selection
         self.tool_categories = {
-            "web_recon": ["httpx", "katana", "waybackurls", "gau", "whatweb"],
+            "web_recon": ["httpx", "katana", "whatweb"],
             "web_vuln": ["sqlmap", "dalfox", "nikto", "wpscan"],
             "web_discovery": ["gobuster", "dirsearch", "feroxbuster"],
-            "web_params": ["arjun", "paramspider"],
+            "web_params": ["arjun"],
             "crypto_hash": ["hashcat", "john", "hash-identifier", "hashid"],
-            "crypto_cipher": ["cipher-identifier", "frequency-analysis", "substitution-solver"],
-            "crypto_rsa": ["rsatool", "factordb", "yafu"],
-            "crypto_modern": ["sage", "openssl", "gpg"],
-            "pwn_analysis": ["checksec", "file", "strings", "objdump", "readelf"],
-            "pwn_exploit": ["pwntools", "ropper", "ropgadget", "one-gadget"],
-            "pwn_debug": ["gdb-peda", "gdb-gef", "ltrace", "strace"],
-            "pwn_advanced": ["angr", "ghidra", "radare2"],
-            "forensics_file": ["binwalk", "foremost", "photorec", "exiftool"],
-            "forensics_image": ["steghide", "stegsolve", "zsteg", "outguess"],
-            "forensics_memory": ["volatility", "volatility3", "rekall"],
-            "forensics_network": ["wireshark", "tcpdump", "networkminer"],
-            "rev_static": ["ghidra", "ida", "radare2", "strings"],
-            "rev_dynamic": ["gdb-peda", "ltrace", "strace"],
-            "rev_unpack": ["upx", "peid", "detect-it-easy"],
-            "osint_social": ["sherlock", "social-analyzer", "theHarvester"],
-            "osint_domain": ["whois", "dig", "sublist3r", "amass"],
-            "osint_search": ["shodan", "censys", "recon-ng"],
+            "crypto_cipher": [],
+            "crypto_rsa": [],
+            "crypto_modern": ["openssl", "gpg"],
+            "pwn_analysis": ["checksec", "file", "strings"],
+            "pwn_exploit": ["ropper"],
+            "pwn_debug": ["ltrace", "strace"],
+            "pwn_advanced": ["ghidra", "radare2"],
+            "forensics_file": ["binwalk", "foremost", "exiftool"],
+            "forensics_image": ["steghide"],
+            "forensics_memory": [],
+            "forensics_network": ["wireshark", "tcpdump"],
+            "rev_static": ["ghidra", "radare2", "strings"],
+            "rev_dynamic": ["ltrace", "strace"],
+            "rev_unpack": ["upx"],
+            "osint_social": ["sherlock", "theHarvester"],
+            "osint_domain": ["whois", "sublist3r", "amass"],
+            "osint_search": ["recon-ng"],
             "misc_encoding": ["base64", "base32", "hex", "rot13"],
             "misc_compression": ["zip", "7zip", "rar", "tar"],
-            "misc_esoteric": ["brainfuck", "whitespace", "piet", "malbolge"]
+            "misc_esoteric": []
         }
 
     def get_tool_command(self, tool: str, target: str, additional_args: str = "") -> str:
@@ -3761,7 +3772,7 @@ class CTFToolManager:
             if any(keyword in description_lower for keyword in ["directory", "hidden", "files", "admin"]):
                 suggested_tools.extend(["gobuster", "dirsearch"])
             if any(keyword in description_lower for keyword in ["parameter", "param", "get", "post"]):
-                suggested_tools.extend(["arjun", "paramspider"])
+                suggested_tools.extend(["arjun"])
             if any(keyword in description_lower for keyword in ["jwt", "token", "session"]):
                 suggested_tools.append("jwt-tool")
             if any(keyword in description_lower for keyword in ["graphql", "api"]):
@@ -9888,7 +9899,7 @@ def health_check():
 
     web_security_tools = [
         "ffuf", "feroxbuster", "dirsearch", "dotdotpwn", "xsser", "wfuzz",
-        "gau", "waybackurls", "arjun", "paramspider", "x8", "jaeles", "dalfox",
+        "gau", "waybackurls", "arjun", "dalfox",
         "httpx", "wafw00f", "burpsuite", "zaproxy", "katana", "hakrawler"
     ]
 
@@ -11215,7 +11226,7 @@ def workflow_bug_bounty_quick():
         
         # Stage 2: Live Host + Tech Stack
         stage2_jobs = []
-        cmd = f"echo '{target}' | httpx -silent -sc -title -td -ip -cdn -server -hash sha256"
+        cmd = f"echo '{target}' | httpx-toolkit -silent -sc -title -td -ip -server"
         job_id = add_job(cmd, "httpx", timeout=120)
         stage2_jobs.append({"tool": "httpx", "job_id": job_id})
         workflow["stages"]["2_live_host_tech"] = stage2_jobs
@@ -11243,7 +11254,7 @@ def workflow_bug_bounty_quick():
         # Stage 5: Parameter Discovery + XSS/SQLi Quick Check
         stage5_jobs = []
         for cmd, name in [
-            (f"katana -u https://{target} -d 2 -jc -kf -silent -nc 2>/dev/null | head -100", "katana"),
+            (f"katana -u https://{target} -d 2 -jc -kf all -silent -nc 2>/dev/null | head -100", "katana"),
             (f"gau {target} 2>/dev/null | grep '=' | head -50", "gau_params"),
             (f"nuclei -u https://{target} -tags xss,sqli -silent -c 25", "nuclei_injection"),
         ]:
@@ -11315,7 +11326,7 @@ def workflow_api_pentest():
         # Stage 1: API Endpoint Discovery
         stage1_jobs = []
         for cmd, name in [
-            (f"katana -u https://{target} -d 3 -jc -kf -silent -nc 2>/dev/null | grep -E '/api/|/v[0-9]/|/graphql' | head -100", "katana_api"),
+            (f"katana -u https://{target} -d 3 -jc -kf all -silent -nc 2>/dev/null | grep -E '/api/|/v[0-9]/|/graphql' | head -100", "katana_api"),
             (f"gau {target} 2>/dev/null | grep -E '/api/|/v[0-9]/|/rest/|/graphql' | head -100", "gau_api"),
             (f"ffuf -u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -mc 200,201,204,301,302,401,403,405 -s 2>/dev/null | head -50", "ffuf_api"),
         ]:
@@ -14219,11 +14230,11 @@ def wpscan():
 
 @app.route("/api/tools/enum4linux", methods=["POST"])
 def enum4linux():
-    """Execute enum4linux with enhanced logging"""
+    """Execute enum4linux-ng with enhanced logging"""
     try:
         params = request.json
         target = params.get("target", "")
-        additional_args = params.get("additional_args", "-a")
+        additional_args = params.get("additional_args", "-A")
 
         if not target:
             logger.warning("[>] Enum4linux called without target parameter")
@@ -14231,9 +14242,14 @@ def enum4linux():
                 "error": "Target parameter is required"
             }), 400
 
-        command = f"enum4linux {additional_args} {target}"
+        # Map legacy flags to enum4linux-ng flags
+        if "-a" in additional_args and "-A" not in additional_args:
+            additional_args = additional_args.replace("-a", "-A")
 
-        logger.info(f"[?] Starting Enum4linux: {target}")
+        # Use enum4linux-ng instead of legacy enum4linux
+        command = f"enum4linux-ng {additional_args} {target}"
+
+        logger.info(f"[?] Starting Enum4linux-ng: {target}")
         result = execute_command(command)
         logger.info(f"[#] Enum4linux completed for {target}")
         return jsonify(result)
@@ -16158,7 +16174,7 @@ def httpx():
             logger.warning("[W] httpx called without target parameter")
             return jsonify({"error": "Target parameter is required"}), 400
 
-        command = f"httpx -l {target} -t {threads}"
+        command = f"httpx-toolkit -l {target} -t {threads}"
 
         if probe:
             command += " -probe"

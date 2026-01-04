@@ -4,6 +4,18 @@
 
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fzebbern%2Fvectorai-blue)](https://ghcr.io/zebbern/vectorai)
 [![Tools](https://img.shields.io/badge/Tools-70%2B-green)](https://github.com/zebbern/vectorai-docker)
+[![Version](https://img.shields.io/badge/Version-6.1-orange)](https://github.com/zebbern/vectorai-docker)
+
+---
+
+## ✨ Features
+
+- **70+ Security Tools** - Network, web, cloud, forensics, exploitation
+- **7 Pre-built Workflows** - Bug bounty, cloud audit, red team, and more
+- **Session Tracking** - All scan results stored with unique session IDs
+- **Async Job Queue** - Run long scans in background with status tracking
+- **SQLite + File Storage** - Structured findings + raw tool outputs
+- **25 Presets** - Quick configurations for common scan types
 
 ---
 
@@ -12,11 +24,49 @@
 ```bash
 # Pull and run
 docker pull ghcr.io/zebbern/vectorai:latest
-docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
+docker run -d --name vectorai -p 8888:8888 -p 8080:8080 \
+  -v vectorai-scans:/app/scans \
+  ghcr.io/zebbern/vectorai:latest
 
 # Verify it's running:
 curl http://localhost:8888/health
 ```
+
+---
+
+## 🔄 Session-Based Workflows
+
+VectorAI now tracks all scans with session IDs for easy result retrieval:
+
+```bash
+# Start a workflow (returns session_id)
+curl -X POST http://localhost:8888/api/workflow/bug-bounty-quick \
+  -H "Content-Type: application/json" \
+  -d '{"target":"example.com"}'
+
+# Check session status
+curl http://localhost:8888/api/session/{session_id}
+
+# Get findings
+curl http://localhost:8888/api/session/{session_id}/findings
+
+# Download report
+curl http://localhost:8888/api/session/{session_id}/report?format=markdown
+```
+
+### Available Workflows
+
+| Workflow | Description | Est. Time |
+|----------|-------------|-----------|
+| `bug-bounty-quick` | Fast subdomain + vuln scan | 10-12 min |
+| `bug-bounty-full` | Comprehensive bug bounty | 2-3 hours |
+| `cloud-security-audit` | AWS/Azure/GCP audit | 30-45 min |
+| `web-app-pentest` | Full web app test | 1-2 hours |
+| `red-team-recon` | Stealth reconnaissance | 45-60 min |
+| `infrastructure-scan` | Network infrastructure | 30-45 min |
+| `api-security-test` | API endpoint testing | 20-30 min |
+
+---
 
 ## 🛑 Stop / Manage Containers
 
@@ -141,6 +191,15 @@ pip install requests fastmcp
 |----------|---------|-------------|
 | `VECTORAI_PORT` | 8888 | API server port |
 | `VECTORAI_DEBUG` | false | Debug mode |
+
+### Volume Mounts
+
+| Volume | Path | Description |
+|--------|------|-------------|
+| `vectorai-scans` | `/app/scans` | Session data + SQLite DB |
+| `vectorai-output` | `/app/output` | Tool outputs |
+| `vectorai-logs` | `/app/logs` | Server logs |
+| `vectorai-cache` | `/app/cache` | Tool cache |
 
 ### Custom Configuration
 ```bash

@@ -130,10 +130,14 @@ RUN apt-get update && apt-get upgrade -y && \
     evil-winrm \
     hash-identifier \
     hashcat \
+    hashid \
     hydra \
     john \
     medusa \
     patator \
+    # rsatool \
+    stegcracker \
+    # yafu \
     # ===== SMB & Windows (alphabetically sorted) =====
     samba-common-bin \
     smbclient \
@@ -143,18 +147,44 @@ RUN apt-get update && apt-get upgrade -y && \
     checksec \
     gdb \
     ghidra \
+    jadx \
+    jd-gui \
+    ltrace \
     radare2 \
     ropper \
+    strace \
     # ===== Forensics & CTF (alphabetically sorted) =====
+    autopsy \
+    bulk-extractor \
+    dc3dd \
     exiftool \
     foremost \
+    gddrescue \
+    p7zip-full \
+    scalpel \
     sleuthkit \
     steghide \
     testdisk \
+    unrar \
+    upx-ucl \
+    zbar-tools \
+    # ===== Mobile Security (alphabetically sorted) =====
+    adb \
+    apktool \
+    dex2jar \
     # ===== OSINT (alphabetically sorted) =====
+    dnsrecon \
+    maltego \
     recon-ng \
     sherlock \
     spiderfoot \
+    sublist3r \
+    whois \
+    # ===== Cloud & Infrastructure (alphabetically sorted) =====
+    # ansible \
+    # docker.io \
+    # kubectl \
+    # terraform \
     # ===== SSL/TLS & Security (alphabetically sorted) =====
     sslscan \
     testssl.sh \
@@ -190,6 +220,7 @@ RUN go install github.com/hahwul/dalfox/v2@latest 2>/dev/null || true && \
     go install github.com/tomnomnom/anew@latest 2>/dev/null || true && \
     go install github.com/tomnomnom/qsreplace@latest 2>/dev/null || true && \
     go install github.com/tomnomnom/waybackurls@latest 2>/dev/null || true && \
+    go install github.com/tomnomnom/assetfinder@latest 2>/dev/null || true && \
     # Clean Go cache to reduce image size (saves ~500MB+)
     go clean -cache -modcache -testcache && \
     rm -rf /root/.cache/go-build /tmp/go-*
@@ -248,7 +279,11 @@ RUN python3 -m venv ${PYTHON_VENV_PATH} && \
     && \
     # ===== Cloud Security Tools =====
     ${PYTHON_VENV_PATH}/bin/pip install --no-cache-dir \
+        apkleaks \
+        censys \
         checkov \
+        frida-tools \
+        objection \
         prowler \
         scoutsuite \
     2>/dev/null || true && \

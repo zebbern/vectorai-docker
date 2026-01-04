@@ -1197,7 +1197,7 @@ def setup_mcp_server(vectorai_client: VectorAIClient) -> FastMCP:
         return result
 
     @mcp.tool()
-    def enum4linux_scan(target: str, additional_args: str = "-a") -> Dict[str, Any]:
+    def enum4linux_scan(target: str, additional_args: str = "-A") -> Dict[str, Any]:
         """
         Execute Enum4linux for SMB enumeration with enhanced logging.
 
