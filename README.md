@@ -1,262 +1,145 @@
-## VectorAI MCP Server
-
-**AI-Powered Penetration Testing Framework** with 70+ pre-installed security tools.
+# VectorAI - Advanced AI Penetration Testing Framework
 
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fzebbern%2Fvectorai-blue)](https://ghcr.io/zebbern/vectorai)
 [![Tools](https://img.shields.io/badge/Tools-70%2B-green)](https://github.com/zebbern/vectorai-docker)
 [![Version](https://img.shields.io/badge/Version-6.1-orange)](https://github.com/zebbern/vectorai-docker)
+[![Status](https://img.shields.io/badge/Status-Refactored%20%26%20Modular-brightgreen)]()
+
+VectorAI is a next-generation, **AI-powered penetration testing framework** designed for Bug Bounty hunters, CTF players, and Red Teams. It goes beyond simple automation by using an intelligent decision engine to analyze results in real-time and adapt its attack strategy.
 
 ---
 
-## ✨ Features
+## 🚀 Key Features
 
-- **70+ Security Tools** - Network, web, cloud, forensics, exploitation
-- **7 Pre-built Workflows** - Bug bounty, cloud audit, red team, and more
-- **Session Tracking** - All scan results stored with unique session IDs
-- **Async Job Queue** - Run long scans in background with status tracking
-- **SQLite + File Storage** - Structured findings + raw tool outputs
-- **25 Presets** - Quick configurations for common scan types
+*   **🧠 Intelligent Decision Engine**: Unlike linear scripts, VectorAI analyzes tool output to decide the next best move.
+*   **🏗️ Modular Architecture**: 
+    *   **Interface**: A lightweight Flask server (`vectorai_server.py`) handling APIs.
+    *   **Core**: A robust logic engine (`vectorai_app/`) managing workflows, tools, and intelligence.
+*   **🛠️ 70+ Integrated Tools**: Seamlessly orchestrates industry-standard tools like Nmap, Nuclei, SQLMap, Metasploit, and more.
+*   **🔄 Automated Workflows**: Pre-built playbooks for:
+    *   **Bug Bounties** (Recon -> Vulnerability Scanning)
+    *   **CTF Challenges** (Jeopardy & Attack-Defense)
+    *   **Red Teaming** (Full kill-chain simulation)
+*   **📊 Comprehensive Reporting**: Generates detailed JSON and Markdown reports with findings and remediation steps.
 
 ---
 
-## Quick Start
+## 📂 Project Structure
+
+The project has been refactored for stability and extensibility:
+
+```text
+hexstrike-docker/
+├── vectorai_server.py    # [ENTRY POINT] API Gateway & Web Server
+├── vectorai_app/         # [CORE LOGIC]
+│   ├── core/             # AI Engine, Recon, & Intelligence
+│   ├── workflows/        # Automated Playbooks (Bug Bounty, CTF)
+│   ├── tools/            # Tool Wrappers & Managers
+│   └── tests/            # Unit & Integration Tests
+├── requirements.txt      # Python Dependencies
+└── USERGUIDE.md          # Detailed Usage Instructions
+```
+
+---
+
+## ⚡ Quick Start
+
+### Option 1: Local Python (Recommended for Dev)
+
+1.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+2.  **Start the Server**:
+    ```bash
+    python vectorai_server.py
+    ```
+    *   Server runs on `http://localhost:8888`
+
+3.  **Verify**:
+    ```bash
+    curl http://localhost:8888/health
+    ```
+
+### Option 2: Docker
 
 ```bash
-# Pull and run
 docker pull ghcr.io/zebbern/vectorai:latest
-docker run -d --name vectorai -p 8888:8888 -p 8080:8080 \
-  -v vectorai-scans:/app/scans \
-  ghcr.io/zebbern/vectorai:latest
-
-# Verify it's running:
-curl http://localhost:8888/health
+docker run -d -p 8888:8888 -v vectorai-scans:/app/scans ghcr.io/zebbern/vectorai:latest
 ```
 
 ---
 
-## 🔄 Session-Based Workflows
+## 📖 Documentation & Usage
 
-VectorAI now tracks all scans with session IDs for easy result retrieval:
+For a complete manual, see the **[User Guide](USERGUIDE.md)**. Below are the core ways to use the system.
+
+### 1. The Full Workflow (Start to Finish)
+
+**Step 1: Start a Scan**
+Send a request to start a workflow. The server returns a `job_id`.
 
 ```bash
-# Start a workflow (returns session_id)
 curl -X POST http://localhost:8888/api/workflow/bug-bounty-quick \
-  -H "Content-Type: application/json" \
-  -d '{"target":"example.com"}'
+     -H "Content-Type: application/json" \
+     -d '{"target": "scanme.nmap.org"}'
 
-# Check session status
-curl http://localhost:8888/api/session/{session_id}
-
-# Get findings
-curl http://localhost:8888/api/session/{session_id}/findings
-
-# Download report
-curl http://localhost:8888/api/session/{session_id}/report?format=markdown
+# Response Example:
+# {
+#   "status": "started", 
+#   "job_id": "job_20240101_12345", 
+#   "message": "Bug Bounty Quick Workflow initiated"
+# }
 ```
 
-### Available Workflows
-
-| Workflow | Description | Est. Time |
-|----------|-------------|-----------|
-| `bug-bounty-quick` | Fast subdomain + vuln scan | 10-12 min |
-| `bug-bounty-full` | Comprehensive bug bounty | 2-3 hours |
-| `cloud-security-audit` | AWS/Azure/GCP audit | 30-45 min |
-| `web-app-pentest` | Full web app test | 1-2 hours |
-| `red-team-recon` | Stealth reconnaissance | 45-60 min |
-| `infrastructure-scan` | Network infrastructure | 30-45 min |
-| `api-security-test` | API endpoint testing | 20-30 min |
-
----
-
-## 🛑 Stop / Manage Containers
+**Step 2: Check Status**
+Use the `job_id` from Step 1 to see provided progress.
 
 ```bash
-# Check running containers
-docker ps | grep vectorai
+curl http://localhost:8888/api/jobs/job_20240101_12345
 
-# Check all containers (including stopped)
-docker ps -a | grep vectorai
+# Response Example:
+# { "status": "running", "progress": 45, "current_step": "Subdomain Enumeration" }
 ```
 
-### Stop VectorAI
-```bash
-# Stop the container
-docker stop vectorai
+**Step 3: Get Results**
+Once the status is `completed`, retrieve the full JSON report.
 
-# Stop and remove the container
-docker stop vectorai && docker rm vectorai
+```bash
+curl http://localhost:8888/api/report/job_20240101_12345
 ```
 
-### Restart VectorAI
-```bash
-docker restart vectorai
-```
+### 2. Available Workflows
 
-### View Logs
-```bash
-# Follow logs in real-time
-docker logs -f vectorai
+Don't just guess! Here are the powerful built-in modes you can trigger via POST requests:
 
-# Last 100 lines
-docker logs --tail 100 vectorai
-```
+| Workflow | Endpoint | Description |
+| :--- | :--- | :--- |
+| **⚡ Quick Recon** | `/api/workflow/bug-bounty-quick` | Fast subdomain enumeration & basic port scan. |
+| **🔍 Full Recon** | `/api/workflow/full-recon` | Deep dive: tech stack detection, DNS, subdomains, & crawling. |
+| **🛡️ Vuln Scan** | `/api/workflow/vuln-assessment` | Active vulnerability scanning (Nuclei, Nikto, etc.). |
+| **🚩 Red Team** | `/api/workflow/red-team-full` | Full kill-chain simulation (Recon -> Exploit attempts). |
+| **☁️ API Scan** | `/api/workflow/api-pentest` | Specialized scanning for REST/GraphQL APIs. |
 
-### Enter Container Shell
+### 3. Running Specific Tools (Ad-Hoc)
+
+You can also use VectorAI as a wrapper to run specific tools directly without running a full workflow. This allows you to leverage the server's environment.
+
 ```bash
-docker exec -it vectorai bash
+curl -X POST http://localhost:8888/api/command/quick \
+     -H "Content-Type: application/json" \
+     -d '{"command": "nmap -sV -p80,443 scanme.nmap.org"}'
 ```
 
 ---
 
-## Alternative: Docker Compose
+## ⚠️ Disclaimer
 
-### Option A: Use Pre-built Image (Recommended)
-```bash
-git clone https://github.com/zebbern/vectorai-docker.git
-cd vectorai-docker
-docker compose -f docker-compose.pull.yml up -d
-```
-
-### Option B: Build from Source
-```bash
-git clone https://github.com/zebbern/vectorai-docker.git
-cd vectorai-docker
-docker compose up -d --build  # Takes 15-30 minutes
-```
-
-### Docker Compose Commands
-```bash
-# Start
-docker compose up -d
-
-# Stop
-docker compose down
-
-# Stop and remove volumes
-docker compose down -v
-
-# View status
-docker compose ps
-
-# View logs
-docker compose logs -f
-```
+**VectorAI is for authorized security testing and educational purposes only.**
+Using this tool against target systems without prior mutual consent is illegal. The developers assume no liability and are not responsible for any misuse or damage caused by this program.
 
 ---
 
-## VS Code Integration
-
-### Configure MCP Client
-
-Create `.vscode/mcp.json` in your project:
-
-```json
-{
-    "servers": {
-        "vectorai": {
-            "type": "stdio",
-            "command": "python",
-            "args": [
-                "vectorai_mcp_client.py",
-                "--server",
-                "http://localhost:8888"
-            ]
-        }
-    }
-}
-```
-
-### Install Python Dependencies
-```bash
-pip install requests fastmcp
-```
-
----
-
-## Included Tools (70+)
-
-| Category | Tools |
-|----------|-------|
-| **Network** | nmap, masscan, rustscan, amass, subfinder, dnsenum, theharvester |
-| **Web** | gobuster, ffuf, nuclei, nikto, sqlmap, wpscan, httpx, OWASP ZAP |
-| **Password** | hydra, john, hashcat, medusa, crackmapexec, evil-winrm |
-| **Binary** | gdb, radare2, binwalk, ghidra, pwntools, ropper, ROPgadget |
-| **Cloud** | prowler, scout-suite, trivy, checkov, aws-cli |
-| **Forensics** | volatility3, foremost, steghide, exiftool |
-| **Exploit** | Metasploit Framework, searchsploit |
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VECTORAI_PORT` | 8888 | API server port |
-| `VECTORAI_DEBUG` | false | Debug mode |
-
-### Volume Mounts
-
-| Volume | Path | Description |
-|--------|------|-------------|
-| `vectorai-scans` | `/app/scans` | Session data + SQLite DB |
-| `vectorai-output` | `/app/output` | Tool outputs |
-| `vectorai-logs` | `/app/logs` | Server logs |
-| `vectorai-cache` | `/app/cache` | Tool cache |
-
-### Custom Configuration
-```bash
-# Copy example config
-cp .env.example .env
-
-# Edit as needed
-nano .env
-```
-
----
-
-## Health Check & API
-
-### Health Endpoint
-```bash
-curl http://localhost:8888/health
-```
-
-### Test Command Execution
-```bash
-curl -X POST http://localhost:8888/api/command \
-  -H "Content-Type: application/json" \
-  -d '{"command": "nmap --version"}'
-```
-
----
-
-## Troubleshooting
-
-### Port Already in Use
-```bash
-# Check what's using port 8888
-netstat -ano | findstr 8888  # Windows
-lsof -i :8888                # Linux/Mac
-
-# Use different port
-docker run -d --name vectorai -p 9999:8888 ghcr.io/zebbern/vectorai:latest
-```
-
-### Container Won't Start
-```bash
-# Check logs
-docker logs vectorai
-
-# Remove and recreate
-docker rm -f vectorai
-docker run -d --name vectorai -p 8888:8888 -p 8080:8080 ghcr.io/zebbern/vectorai:latest
-```
-
-### Clean Everything
-```bash
-# Stop all VectorAI containers
-docker stop vectorai 2>/dev/null
-docker rm vectorai 2>/dev/null
-
-# Remove image (to re-download)
-docker rmi ghcr.io/zebbern/vectorai:latest
-```
+*Developed by @zebbern for the Security Community.*
 
